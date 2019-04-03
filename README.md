@@ -135,6 +135,11 @@ Sure. Most programming languages seem to have libraries for reading a LevelDB da
 The trickier part is decoding the data for each UTXO in the database:
 
 ```
+       type                          txid (little-endian)                      index (varint)
+           \                               |                                  /
+           <><--------------------------------------------------------------><>
+    key:   430000155b9869d56c66d9e86e3c01de38e3892a42b99949fe109ac034fff6583900
+
     value: 71a9e87d62de25953e189f706bcf59263f15de1bf6c893bda9b045 <- obfuscated
            b12dcefd8f872536b12dcefd8f872536b12dcefd8f872536b12dce <- extended obfuscateKey
            c0842680ed5900a38f35518de4487c108e3810e6794fb68b189d8b <- deobfuscated (XOR)
