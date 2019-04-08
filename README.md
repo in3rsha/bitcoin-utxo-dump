@@ -1,6 +1,6 @@
 # Bitcoin UTXO Dump
 
-![](assets/bitcoin-utxo-dump.png)
+![](assets/bitcoin-utxo-dump.gif)
 
 Get a **list of every unspent bitcoin** in the blockchain.
 
@@ -136,7 +136,9 @@ This program just iterates through all the entries in the LevelDB database at `~
 
 However, the data inside `~/.bitcoin/chainstate` has been obfuscated (to prevent triggering anti-virus software) and compressed (to reduce the size on disk), so it's far from being human-readable. This script just deobfuscates each entry and decodes/decompresses the data to get human-readable data for each UTXO in the database.
 
-## Can I parse the chainstate LevelDB myself?
+![](assets/bitcoin-utxo-dump.png)
+
+### Can I parse the chainstate LevelDB myself?
 
 Sure. Most programming languages seem to have libraries for reading a LevelDB database.
 
