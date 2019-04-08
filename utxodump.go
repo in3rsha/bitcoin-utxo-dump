@@ -413,7 +413,7 @@ func main() {
                 // 1157.76user 176.47system 30:44.64elapsed 72%CPU (0avgtext+0avgdata 55332maxresident)k
                 // 1110.76user 164.97system 29:17.17elapsed 72%CPU (0avgtext+0avgdata 55236maxresident)k (after using packages)
             } else {
-                if (i % 1000000 == 0) {
+                if (i % 100000 == 0) {
                     fmt.Printf("%d utxos processed\n", i) // Show progress at intervals.
                 }
                 // 812.18user 16.94system 12:44.04elapsed 108%CPU (0avgtext+0avgdata 55272maxresident)k
@@ -429,6 +429,7 @@ func main() {
 
         // Increment Count
         i++
+
     }
 
     // Final Progress Report
