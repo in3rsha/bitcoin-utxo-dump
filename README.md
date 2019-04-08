@@ -4,7 +4,9 @@
 
 Get a **list of every unspent bitcoin** in the blockchain.
 
-The program iterates over each entry in Bitcoin Core's `chainstate` [LevelDB](http://leveldb.org/) database. It decompresses and decodes the data, and produces a human-readable text dump of all the UTXOs (unspent bitcoins). Here is an example of the output:
+The program iterates over each entry in Bitcoin Core's `chainstate` [LevelDB](http://leveldb.org/) database. It decompresses and decodes the data, and produces a human-readable text dump of all the [UTXO](http://learnmeabitcoin.com/glossary/utxo)s (unspent transaction outputs).
+
+#### Example
 
 ```
 count,txid,vout,value,type,address
@@ -41,12 +43,20 @@ This will create a binary called `bitcoin-utxo-dump`, which you can call from th
 $ bitcoin-utxo-dump
 ```
 
+This will start dumping all of the UTXO database to a file called `utxodump.csv`.
+
 **NOTE:** This program reads the chainstate LevelDB database created by `bitcoind`, so you will need to download and sync `bitcoind` for this script to work. In other words, this script reads your own local copy of the blockchain.
 
-**NOTE:** Make sure `bitcoind` isn't running before you start, because LevelDB does not like to be accessed by multiple programs at the same time. (`bitcoin-cli stop` should do it.)
+**NOTE:** LevelDB wasn't designed to be accessed by multiple programs at the same time, so make sure `bitcoind` isn't running before you start (`bitcoin-cli stop` should do it).
 
 
 ## Usage
+
+The basic command is:
+
+```
+$ bitcoin-utxo-dump
+```
 
 You can view the results in the terminal with the `-v` (verbose) flag:
 
@@ -54,7 +64,7 @@ You can view the results in the terminal with the `-v` (verbose) flag:
 $ bitcoin-utxo-dump -v
 ```
 
-The results will be written to the file `utxodump.csv` in the current directory (where you're running the program from), but you can choose your own filename with the `-o` option:
+The results will be written to the file `utxodump.csv` in the current directory (where you're running the program from). You can choose your own filename with the `-o` option:
 
 ```
 $ bitcoin-utxo-dump -o ~/Desktop/utxodump.txt
@@ -84,7 +94,7 @@ $ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,value,script,type,addr
 * **address** - The address the output is locked to (this is generally just the locking script in a shorter format with user-friendly characters).
 
 
-All other options and whatnot can be found with `-h`:
+All other options can be found with `-h`:
 
 ```
 $ bitcoin-utxo-dump -h
@@ -118,7 +128,7 @@ This tool works for Bitcoin Core [0.15.1](https://bitcoincore.org/en/releases/0.
 
 Older versions of bitcoind have a different chainstate leveldb structure. The structure was updated in 0.15.1 to make reading from the database more memory-efficient. Here's an interesting talk by [Chris Jeffrey](https://youtu.be/0WCaoGiAOHE?t=8936) that explains how you could crash Bitcoin Core with the old chainstate database structure.
 
-Nonetheless, if you really want to parse an old-style chainstate database, try the _similar tools_ at the bottom of this page.
+Nonetheless, if you really want to parse an old-style chainstate database, try one of the _similar tools_ at the bottom of this page.
 
 ### How does this program work?
 
