@@ -204,9 +204,9 @@ func main() {
             //         |     amount (compressesed)
             //         |
             //         |
-            //  11101000000111110110
-            //  <-----------------> \
-            //         height        coinbase
+            //  100000100001010100110
+            //  <------------------> \
+            //         height         coinbase
 
             offset := 0
 
