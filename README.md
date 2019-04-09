@@ -165,9 +165,9 @@ The trickier part is decoding the data for each UTXO in the database:
           |     amount (compressesed)
           |
           |
-   11101000000111110110
-   <-----------------> \
-          height        coinbase
+   100000100001010100110
+   <------------------> \
+          height         coinbase
 ```
 
 ## Thanks
@@ -177,6 +177,7 @@ The trickier part is decoding the data for each UTXO in the database:
 ### Similar Tools
 
  * [github.com/sr-gi/bitcoin_tools](https://github.com/sr-gi/bitcoin_tools)
+ * [github.com/in3rsha/bitcoin-chainstate-parser](https://github.com/in3rsha/bitcoin-chainstate-parser)
  * [github.com/mycroft/chainstate](https://github.com/mycroft/chainstate)
  * [laanwj (unfinished)](https://github.com/bitcoin/bitcoin/pull/7759)
 
