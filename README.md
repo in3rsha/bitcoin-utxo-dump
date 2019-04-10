@@ -80,7 +80,7 @@ You can select what data the script outputs from the chainstate database with th
 
 ```
 $ bitcoin-utxo-dump.go -f count,txid,vout,address
-$ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,value,script,type,address # all possible fields
+$ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,amount,script,type,address # all possible fields
 ```
 
 * **count** - The count of the number of UTXOs in the database.
@@ -88,7 +88,7 @@ $ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,value,script,type,addr
 * **vout** - The index number of the output in a transaction (which output in the transaction it is).
 * **height** - The height of the block the transaction was mined in.
 * **coinbase** - Whether the output is from a coinbase transaction (i.e. claiming a block reward).
-* **value** - The value of the output in _satoshis_.
+* **amount** - The value of the output in _satoshis_.
 * **script** - The locking script placed on the output (this is just the public key or hash160 for P2PK, P2PKH, and P2SH)
 * **type** - The type of locking script (e.g. P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH, non-standard)
 * **address** - The address the output is locked to (this is generally just the locking script in a shorter format with user-friendly characters).
@@ -118,8 +118,8 @@ Again, this depends on how many entries are in the UTXO database, but it also de
 
 ```
 $ bitcoin-utxo-dump.go -f address # small file
-$ bitcoin-utxo-dump.go -f count,txid,vout,value,type,address # bigger file
-$ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,value,nsize,script,type,address # biggest file
+$ bitcoin-utxo-dump.go -f count,txid,vout,amount,type,address # bigger file
+$ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,amount,nsize,script,type,address # biggest file
 ```
 
 ### What versions of bitcoin does this tool work with?
