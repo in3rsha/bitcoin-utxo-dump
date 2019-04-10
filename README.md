@@ -58,7 +58,7 @@ The basic command is:
 $ bitcoin-utxo-dump
 ```
 
-You can view the results in the terminal with the `-v` (verbose) flag:
+You can view the results in the terminal with the `-v` (verbose) flag (but this will make the script run about 3 times **slower**):
 
 ```
 $ bitcoin-utxo-dump -v
