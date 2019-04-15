@@ -58,25 +58,25 @@ The basic command is:
 $ bitcoin-utxo-dump
 ```
 
-You can view the results in the terminal with the `-v` (verbose) flag (but this will make the script run about 3 times **slower**):
+You can view the results in the terminal with the `-v` (verbose) flag (but this will make the script run about **3 times slower**):
 
 ```
 $ bitcoin-utxo-dump -v
 ```
 
-The results will be written to the file `utxodump.csv` in the current directory (where you're running the program from). You can choose your own filename with the `-o` option:
+The results will be written to the file in the current directory called `utxodump.csv`. You can choose your own filename with the `-o` option:
 
 ```
 $ bitcoin-utxo-dump -o ~/Desktop/utxodump.txt
 ```
 
-If you know that the `chainstate` leveldb folder is in a different location to default (or you want to get a UTXO dump of the Testnet blockchain), use the `-db` option:
+If you know that the `chainstate` LevelDB folder is in a different location to the default (e.g. you want to get a UTXO dump of the _Testnet_ blockchain), use the `-db` option:
 
 ```
 $ bitcoin-utxo-dump.go -db ~/.bitcoin/testnet3/chainstate/
 ```
 
-You can select what data the script outputs from the chainstate database with the `-f` (fields) option. This is useful if you know what data you need and want to keep the results file small.
+You can select what data the script outputs from the chainstate database with the `-f` (fields) option. This is useful if you know what data you need and want to _reduce the size of the results file_.
 
 ```
 $ bitcoin-utxo-dump.go -f count,txid,vout,address
@@ -84,13 +84,13 @@ $ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,amount,script,type,add
 ```
 
 * **count** - The count of the number of UTXOs in the database.
-* **txid** - Transaction ID for the output.
-* **vout** - The index number of the output in a transaction (which output in the transaction it is).
+* **txid** - [Transaction ID](http://learnmeabitcoin.com/glossary/txid) for the output.
+* **vout** - The index number of the transaction output (which output in the transaction is it?).
 * **height** - The height of the block the transaction was mined in.
 * **coinbase** - Whether the output is from a coinbase transaction (i.e. claiming a block reward).
 * **amount** - The value of the output in _satoshis_.
-* **script** - The locking script placed on the output (this is just the public key or hash160 for P2PK, P2PKH, and P2SH)
-* **type** - The type of locking script (e.g. P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH, non-standard)
+* **script** - The locking script placed on the output (this is just the hash160 public key or hash160 script for a P2PK, P2PKH, or P2SH)
+* **type** - The type of locking script (e.g. P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH, or non-standard)
 * **address** - The address the output is locked to (this is generally just the locking script in a shorter format with user-friendly characters).
 
 
@@ -106,13 +106,13 @@ $ bitcoin-utxo-dump -h
 
 It takes me about **20 minutes** to get all the UTXOs.
 
-Obviously this depends on how big the UTXO database is and how fast your computer is. For me, the UTXO database had 52 million entries, and I'm using a Thinkpad X220 (with a SSD).
+This obviously this depends on how big the UTXO database is and how fast your computer is. For me, the UTXO database had 52 million entries, and I'm using a Thinkpad X220 (with a SSD).
 
 Either way, I'd probably make a cup of tea after it starts running.
 
 ### How big is the file?
 
-The file should be around **7GB**.
+The file should be around **7GB** (roughly **2.5 times the size** of the LevelDB database: `du -h ~/.bitcoin/chainstate/`).
 
 Again, this depends on how many entries are in the UTXO database, but it also depends what _fields_ you choose to have in the results:
 
@@ -126,15 +126,15 @@ $ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,amount,nsize,script,ty
 
 This tool works for Bitcoin Core [0.15.1](https://bitcoincore.org/en/releases/0.15.1/) and above. You can check your version with `bitcoind --version`.
 
-Older versions of bitcoind have a different chainstate leveldb structure. The structure was updated in 0.15.1 to make reading from the database more memory-efficient. Here's an interesting talk by [Chris Jeffrey](https://youtu.be/0WCaoGiAOHE?t=8936) that explains how you could crash Bitcoin Core with the old chainstate database structure.
+Older versions of bitcoind have a different chainstate LevelDB structure. The structure was updated in 0.15.1 to make reading from the database more memory-efficient. Here's an interesting talk by [Chris Jeffrey](https://youtu.be/0WCaoGiAOHE?t=8936) that explains how you could crash Bitcoin Core with the old chainstate database structure.
 
-Nonetheless, if you really want to parse an old-style chainstate database, try one of the _similar tools_ at the bottom of this page.
+Nonetheless, if you really want to parse an _old-style_ chainstate database, try one of the _similar tools_ at the bottom of this page.
 
 ### How does this program work?
 
 This program just iterates through all the entries in the LevelDB database at `~/.bitcoin/chainstate`.
 
-However, the data inside `~/.bitcoin/chainstate` has been obfuscated (to prevent triggering anti-virus software) and compressed (to reduce the size on disk), so it's far from being human-readable. This script just deobfuscates each entry and decodes/decompresses the data to get human-readable data for each UTXO in the database.
+However, the data inside `~/.bitcoin/chainstate` has been _obfuscated_ (to prevent triggering anti-virus software) and _compressed_ (to reduce the size on disk), so it's far from being human-readable. This script just deobfuscates each entry and decodes/decompresses the data to get human-readable data for each UTXO in the database.
 
 ![](assets/bitcoin-utxo-dump.png)
 
@@ -172,7 +172,7 @@ The trickier part is decoding the data for each UTXO in the database:
 
 ## Thanks
 
- * This script was inspired by the [bitcoin_tools](https://github.com/sr-gi/bitcoin_tools) repo made by [Sergi Delgado Segura](https://github.com/sr-gi). I wanted to see if I could get a faster dump of the UTXO database by writing the program in Go, as well as get the **addresses** for each of the UTXOs. The decoding and decompressing code in his repo helped me to write this tool.
+ * This script was inspired by the [bitcoin_tools](https://github.com/sr-gi/bitcoin_tools) repo made by [Sergi Delgado Segura](https://github.com/sr-gi). I wanted to see if I could get a faster dump of the UTXO database by writing the program in Go, in addition to getting the **addresses** for each of the UTXOs. The decoding and decompressing code in his repo helped me to write this tool.
 
 ### Similar Tools
 
