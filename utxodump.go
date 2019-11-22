@@ -14,6 +14,7 @@ import "os/exec"      // execute shell command (check bitcoin isn't running)
 import "bufio"        // bulk writing to file
 import "encoding/hex" // convert byte slice to hexadecimal
 import "strings"      // parsing flags from command line
+import "runtime"      // Check OS type for file-handler limitations
 
 
 func main() {
@@ -25,6 +26,19 @@ func main() {
         fmt.Println("Bitcoin is running, shutdown with `bitcoin-cli stop` first. We don't want to access the chainstate LevelDB while Bitcoin is running.")
         return
     }
+    
+    // Check if OS type is Mac OS, then increase ulimit -n to 4096 filehandler during runtime and reset to 1024 at the end
+    // Mac OS standard is 1024
+    // Linux standard is already 4096 wich is also "max" for more edit etc/security/limits.conf
+	if runtime.GOOS == "darwin" {
+        cmd2 := exec.Command("ulimit", "-n", "4096")
+        fmt.Println("setting ulimit 4096\n", err)
+        _, err2 := cmd2.Output()
+        if err2 != nil {
+            fmt.Println("setting new ulimit failed with %s\n", err)
+        }
+        defer exec.Command("ulimit", "-n", "1024")
+	}    
 
     // Set default chainstate LevelDB and output file
     defaultfolder := fmt.Sprintf("%s/.bitcoin/chainstate/", os.Getenv("HOME")) // %s = string
