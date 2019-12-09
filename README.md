@@ -73,14 +73,14 @@ $ bitcoin-utxo-dump -o ~/Desktop/utxodump.txt
 If you know that the `chainstate` LevelDB folder is in a different location to the default (e.g. you want to get a UTXO dump of the _Testnet_ blockchain), use the `-db` option:
 
 ```
-$ bitcoin-utxo-dump.go -db ~/.bitcoin/testnet3/chainstate/
+$ bitcoin-utxo-dump -db ~/.bitcoin/testnet3/chainstate/
 ```
 
 You can select what data the script outputs from the chainstate database with the `-f` (fields) option. This is useful if you know what data you need and want to _reduce the size of the results file_.
 
 ```
-$ bitcoin-utxo-dump.go -f count,txid,vout,address
-$ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,amount,script,type,address # all possible fields
+$ bitcoin-utxo-dump -f count,txid,vout,address
+$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,script,type,address # all possible fields
 ```
 
 * **count** - The count of the number of UTXOs in the database.
@@ -117,9 +117,9 @@ The file should be around **7GB** (roughly **2.5 times the size** of the LevelDB
 Again, this depends on how many entries are in the UTXO database, but it also depends what _fields_ you choose to have in the results:
 
 ```
-$ bitcoin-utxo-dump.go -f address # small file
-$ bitcoin-utxo-dump.go -f count,txid,vout,amount,type,address # bigger file
-$ bitcoin-utxo-dump.go -f count,txid,vout,height,coinbase,amount,nsize,script,type,address # biggest file
+$ bitcoin-utxo-dump -f address # small file
+$ bitcoin-utxo-dump -f count,txid,vout,amount,type,address # bigger file
+$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,nsize,script,type,address # biggest file
 ```
 
 ### What versions of bitcoin does this tool work with?
