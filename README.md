@@ -9,7 +9,7 @@ The program iterates over each entry in Bitcoin Core's `chainstate` [LevelDB](ht
 ### Example CSV Results:
 
 ```
-count,txid,vout,value,type,address
+count,txid,vout,amount,type,address
 1,033e83e3204b0cc28724e147f6fd140529b2537249f9c61c9de9972750030000,0,65279,p2pkh,1KaPHfvVWNZADup3Yc26SfVdkTDvvHySVX
 2,e1c9467a885a156e56a29d9c854e65674d581ad75611b02290454b4862060000,1,9466355,p2pkh,1LpCmEejWLNfZigApMPwUY9nZTS8NTJCNS
 3,a1f28c43f1f3d4821d0db42707737ea90616613099234f905dfc6ae2b4060000,1,339500,p2pkh,1FuphZ7xVPGrxthQT1S8X7nNQNByYxAT3V
@@ -80,7 +80,7 @@ You can select what data the script outputs from the chainstate database with th
 
 ```
 $ bitcoin-utxo-dump -f count,txid,vout,address
-$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,value,script,type,address # all possible fields
+$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,script,type,address # all possible fields
 ```
 
 * **count** - The count of the number of UTXOs in the database.
@@ -88,7 +88,7 @@ $ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,value,script,type,address
 * **vout** - The index number of the transaction output (which output in the transaction is it?).
 * **height** - The height of the block the transaction was mined in.
 * **coinbase** - Whether the output is from a coinbase transaction (i.e. claiming a block reward).
-* **value** - The value of the output in _satoshis_.
+* **amount** - The value of the output in _satoshis_.
 * **script** - The locking script placed on the output (this is just the hash160 public key or hash160 script for a P2PK, P2PKH, or P2SH)
 * **type** - The type of locking script (e.g. P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH, or non-standard)
 * **address** - The address the output is locked to (this is generally just the locking script in a shorter format with user-friendly characters).
@@ -118,8 +118,8 @@ Again, this depends on how many entries are in the UTXO database, but it also de
 
 ```
 $ bitcoin-utxo-dump -f address # small file
-$ bitcoin-utxo-dump -f count,txid,vout,value,type,address # bigger file
-$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,value,nsize,script,type,address # biggest file
+$ bitcoin-utxo-dump -f count,txid,vout,amount,type,address # bigger file
+$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,nsize,script,type,address # biggest file
 ```
 
 ### What versions of bitcoin does this tool work with?
@@ -162,7 +162,7 @@ The trickier part is decoding the data for each UTXO in the database:
        varint   varint   varint          script <- P2PKH/P2SH hash160, P2PK public key, or complete script
           |        |     nSize
           |        |
-          |      value (compressesed)
+          |     amount (compressesed)
           |
           |
    100000100001010100110
