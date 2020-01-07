@@ -130,7 +130,7 @@ func main() {
     defer writer.Flush() // Flush the bufio buffer to the file before this script ends
 
     // Stats - keep track of interesting stats as we read through leveldb.
-    totalAmount := 0 // total amount of satoshis
+    var totalAmount int64 = 0 // total amount of satoshis
     scriptTypeCount := map[string]int{"p2pk":0, "p2pkh":0, "p2sh":0, "p2ms":0, "p2wpkh":0, "p2wsh":0, "non-standard": 0} // count each script type
 
 
@@ -267,7 +267,7 @@ func main() {
 
                 // Amount
                 if fieldsSelected["amount"] {
-                    amount := btcleveldb.DecompressValue(varintDecoded)
+                    amount := btcleveldb.DecompressValue(varintDecoded) // int64
                     output["amount"] = fmt.Sprintf("%d", amount)
                     totalAmount += amount // add to stats
                 }

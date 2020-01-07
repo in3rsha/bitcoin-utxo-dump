@@ -28,10 +28,10 @@ func Varint128Read(bytes []byte, offset int) ([]byte, int) { // take a byte arra
 
 }
 
-func Varint128Decode(bytes []byte) int { // takes a byte slice, returns an int
+func Varint128Decode(bytes []byte) int64 { // takes a byte slice, returns an int64 (makes sure it work on 32 bit systems)
 
     // total
-    n := 0
+    var n int64 = 0
 
     for _, v := range bytes {
 
@@ -47,7 +47,7 @@ func Varint128Decode(bytes []byte) int { // takes a byte slice, returns an int
         //                             00000000  <- the result
         //                              0111001  <- the bits we want to set
         //                             00111001
-        n = n | int(v & 127)
+        n = n | int64(v & 127)
 
         // 3. add 1 each time (only for the ones where the 8th bit is set)
         if (v & 128 != 0) { // 0b10000000 <- AND to check if the 8th bit is set
@@ -62,9 +62,9 @@ func Varint128Decode(bytes []byte) int { // takes a byte slice, returns an int
 
 }
 
-func DecompressValue(x int) int {
+func DecompressValue(x int64) int64 {
 
-    n := 0      // decompressed value
+    var n int64 = 0      // decompressed value
 
     // Return value if it is zero (nothing to decompress)
     if x == 0 {
@@ -95,6 +95,6 @@ func DecompressValue(x int) int {
     // }
     // fmt.Println(multiplier)
 
-    return int(result)
+    return int64(result)
 
 }
