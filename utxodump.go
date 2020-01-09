@@ -11,19 +11,24 @@ import "flag"         // command line arguments
 import "fmt"
 import "os"           // open file for writing
 import "os/exec"      // execute shell command (check bitcoin isn't running)
+import "os/signal"    // catch interrupt signals CTRL-C to close db connection safely
+import "syscall"      // catch kill commands too
 import "bufio"        // bulk writing to file
 import "encoding/hex" // convert byte slice to hexadecimal
 import "strings"      // parsing flags from command line
 import "runtime"      // Check OS type for file-handler limitations
 
-
 func main() {
+
+    // Version
+    const Version = "1.0.1"
 
     // Check bitcoin isn't running first
     cmd := exec.Command("bitcoin-cli", "getnetworkinfo")
     _, err := cmd.Output()
     if err == nil {
         fmt.Println("Bitcoin is running, shutdown with `bitcoin-cli stop` first. We don't want to access the chainstate LevelDB while Bitcoin is running.")
+        fmt.Println("Also make sure that bitcoind will not auto-restart after you shut it down (e.g. it's running as a systemd service.)")
         return
     }
     
@@ -50,7 +55,14 @@ func main() {
     fields := flag.String("f", "count,txid,vout,amount,type,address", "Fields to include in output. [count,txid,vout,height,amount,coinbase,nsize,script,type,address]")
     testnetflag := flag.Bool("testnet", false, "Is the chainstate leveldb for testnet?") // true/false
     verbose := flag.Bool("v", false, "Print utxos as we process them (will be about 3 times slower with this though).")
+    version := flag.Bool("version", false, "Print version.")
     flag.Parse() // execute command line parsing for all declared flags
+
+    // Show Version
+    if *version {
+      fmt.Println(Version)
+      os.Exit(0)
+    }
 
     // Mainnet or Testnet (for encoding addresses correctly)
     testnet := false
@@ -139,9 +151,22 @@ func main() {
 
     // Iterate over LevelDB keys
     iter := db.NewIterator(nil, nil)
-    defer iter.Release()
+    // NOTE: iter.Release() comes after the iteration (not deferred here)
     // err := iter.Error()
     // fmt.Println(err)
+
+    // Catch signals that interrupt the script so that we can close the database safely (hopefully not corrupting it)
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+    go func() { // goroutine
+        <-c // receive from channel
+        fmt.Println("Interrupt signal caught. Shutting down gracefully.")
+        // iter.Release() // release database iterator
+        db.Close()     // close databse
+        writer.Flush() // flush bufio to the file
+        f.Close()      // close file
+        os.Exit(0)     // exit
+    }()
 
     i := 0
     for iter.Next() {
@@ -480,6 +505,7 @@ func main() {
         i++
 
     }
+    iter.Release() // Do not defer this, want to release iterator before closing database
 
     // Final Progress Report
     // ---------------------
