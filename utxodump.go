@@ -1,7 +1,11 @@
 package main
 
 // local packages
-import "github.com/in3rsha/bitcoin-utxo-dump/bitcoin/btcleveldb" // chainstate leveldb decoding functions
+import (
+    "bytes"
+    "github.com/in3rsha/bitcoin-utxo-dump/bitcoin/btcleveldb"
+    "time"
+)                                                            // chainstate leveldb decoding functions
 import "github.com/in3rsha/bitcoin-utxo-dump/bitcoin/keys"   // bitcoin addresses
 import "github.com/in3rsha/bitcoin-utxo-dump/bitcoin/bech32" // segwit bitcoin addresses
 
@@ -17,6 +21,16 @@ import "bufio"        // bulk writing to file
 import "encoding/hex" // convert byte slice to hexadecimal
 import "strings"      // parsing flags from command line
 import "runtime"      // Check OS type for file-handler limitations
+
+import "compress/zlib"
+
+// This for was created to make a compression file with the chain data
+// to run a lightning network node on an Android device
+// the format for the alpha version to aceive was the following
+//
+// txid|outnum|blockheight|spendheight|txindex|scriptpubkey|satoshis
+//
+// Where this propriety was possible found? well we can try to discover it
 
 func main() {
 
@@ -168,9 +182,15 @@ func main() {
         os.Exit(0)     // exit
     }()
 
+    // Declare the compressed buffer
+    var buffer bytes.Buffer
+    compressionFlow := zlib.NewWriter(&buffer)
+
+
     i := 0
     for iter.Next() {
 
+        compressionData := ""
         key := iter.Key()
         value := iter.Value()
 
@@ -477,6 +497,8 @@ func main() {
             for _, v := range strings.Split(*fields, ",") {
                 csvline += output[v]
                 csvline += ","
+                compressionData += output[v]
+                compressionData += "|"
             }
             csvline = csvline[:len(csvline)-1] // remove trailing ,
 
@@ -498,14 +520,23 @@ func main() {
             // -------------
             // Write to buffer (use bufio for faster writes)
             fmt.Fprintln(writer, csvline)
-
+            compressionFlow.Write([]byte(compressionData + "\n"))
+            compressionData = ""
         }
-
         // Increment Count
         i++
-
     }
     iter.Release() // Do not defer this, want to release iterator before closing database
+
+    // ---------- END Compression flow -------------
+    compressionFlow.Close()
+    //Save on file
+    fileCompressed, err := os.Create("chainstate-" + time.Now().Format("01-02-2006") +".dat")
+    if err != nil {
+        panic(err)
+    }
+    fileCompressed.WriteString(buffer.String())
+    fileCompressed.Close()
 
     // Final Progress Report
     // ---------------------
