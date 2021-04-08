@@ -56,6 +56,7 @@ func main() {
     testnetflag := flag.Bool("testnet", false, "Is the chainstate leveldb for testnet?") // true/false
     verbose := flag.Bool("v", false, "Print utxos as we process them (will be about 3 times slower with this though).")
     version := flag.Bool("version", false, "Print version.")
+    p2pkaddresses := flag.Bool("p2pkaddresses", false, "Convert public keys in P2PK locking scripts to addresses also.") // true/false
     flag.Parse() // execute command line parsing for all declared flags
 
     // Show Version
@@ -368,8 +369,8 @@ func main() {
                     if 1 < nsize && nsize < 6 { // 2, 3, 4, 5
                         //  2 = P2PK 02publickey <- nsize makes up part of the public key in the actual script (e.g. 02publickey)
                         //  3 = P2PK 03publickey <- y is odd/even (0x02 = even, 0x03 = odd)
-                        //  4 = P2PK 04publickey (uncompressed)  y = odd?  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
-                        //  5 = P2PK 04publickey (uncompressed)? y = even?
+                        //  4 = P2PK 04publickey (uncompressed)  y = odd  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
+                        //  5 = P2PK 04publickey (uncompressed) y = even
 
                         // "The uncompressed pubkeys are compressed when they are added to the db. 0x04 and 0x05 are used to indicate that the key is supposed to be uncompressed and those indicate whether the y value is even or odd so that the full uncompressed key can be retrieved."
                         //
@@ -381,6 +382,22 @@ func main() {
 
                         scriptType = "p2pk"
                         scriptTypeCount["p2pk"] += 1
+
+                        if fieldsSelected["address"] { // only work out addresses if they're wanted
+                            if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
+
+                                // Decompress if starts with 0x04 or 0x05
+                                if (nsize == 4) || (nsize == 5) {
+                                    script = keys.DecompressPublicKey(script)
+                                }
+
+                                if testnet == true {
+                                    address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+                                } else {
+                                    address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
+                                }
+                            }
+                        }
                     }
 
                     // P2MS

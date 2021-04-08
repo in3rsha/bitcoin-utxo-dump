@@ -76,6 +76,12 @@ If you know that the `chainstate` LevelDB folder is in a different location to t
 $ bitcoin-utxo-dump -db ~/.bitcoin/testnet3/chainstate/
 ```
 
+By default this script does not convert the public keys inside P2PK locking scripts to addresses (because technically they do not have an address). However, sometimes it may be useful to get addresses for them anyway for use with other APIs, so the following option allows you to return the "address" for UTXOs with P2PK locking scripts:
+
+```
+$ bitcoin-utxo-dump -p2pkaddresses
+```
+
 You can select what data the script outputs from the chainstate database with the `-f` (fields) option. This is useful if you know what data you need and want to _reduce the size of the results file_.
 
 ```
