@@ -34,7 +34,7 @@ func main() {
     
     // Check if OS type is Mac OS, then increase ulimit -n to 4096 filehandler during runtime and reset to 1024 at the end
     // Mac OS standard is 1024
-    // Linux standard is already 4096 wich is also "max" for more edit etc/security/limits.conf
+    // Linux standard is already 4096 which is also "max" for more edit etc/security/limits.conf
 	if runtime.GOOS == "darwin" {
         cmd2 := exec.Command("ulimit", "-n", "4096")
         fmt.Println("setting ulimit 4096\n", err)
