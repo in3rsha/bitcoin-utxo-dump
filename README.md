@@ -1,5 +1,7 @@
 # Bitcoin UTXO Dump
 
+**Warning:** This tool may corrupt your chainstate database. If it does, you will need to run `bitcoind -reindex-chainstate` the next time you run bitcoin after using it. This usually takes around an hour to complete.
+
 ![](assets/bitcoin-utxo-dump.gif)
 
 Get a **list of every unspent bitcoin** in the blockchain.
