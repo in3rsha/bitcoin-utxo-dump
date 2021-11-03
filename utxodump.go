@@ -22,33 +22,11 @@ func main() {
 
     // Version
     const Version = "1.0.1"
-
-    // Check bitcoin isn't running first
-    cmd := exec.Command("bitcoin-cli", "getnetworkinfo")
-    _, err := cmd.Output()
-    if err == nil {
-        fmt.Println("Bitcoin is running, shutdown with `bitcoin-cli stop` first. We don't want to access the chainstate LevelDB while Bitcoin is running.")
-        fmt.Println("Also make sure that bitcoind will not auto-restart after you shut it down (e.g. it's running as a systemd service.)")
-        return
-    }
     
-    // Check if OS type is Mac OS, then increase ulimit -n to 4096 filehandler during runtime and reset to 1024 at the end
-    // Mac OS standard is 1024
-    // Linux standard is already 4096 which is also "max" for more edit etc/security/limits.conf
-	if runtime.GOOS == "darwin" {
-        cmd2 := exec.Command("ulimit", "-n", "4096")
-        fmt.Println("setting ulimit 4096\n", err)
-        _, err2 := cmd2.Output()
-        if err2 != nil {
-            fmt.Println("setting new ulimit failed with %s\n", err)
-        }
-        defer exec.Command("ulimit", "-n", "1024")
-	}    
-
     // Set default chainstate LevelDB and output file
     defaultfolder := fmt.Sprintf("%s/.bitcoin/chainstate/", os.Getenv("HOME")) // %s = string
     defaultfile := "utxodump.csv"
-
+    
     // Command Line Options (Flags)
     chainstate := flag.String("db", defaultfolder, "Location of bitcoin chainstate db.") // chainstate folder
     file := flag.String("o", defaultfile, "Name of file to dump utxo list to.") // output file
@@ -57,7 +35,41 @@ func main() {
     verbose := flag.Bool("v", false, "Print utxos as we process them (will be about 3 times slower with this though).")
     version := flag.Bool("version", false, "Print version.")
     p2pkaddresses := flag.Bool("p2pkaddresses", false, "Convert public keys in P2PK locking scripts to addresses also.") // true/false
+    nowarnings := flag.Bool("nowarnings", false, "Ignore warnings if bitcoind is running in the background.") // true/false
     flag.Parse() // execute command line parsing for all declared flags
+
+    // Check bitcoin isn't running first
+    if ! *nowarnings {
+		cmd := exec.Command("bitcoin-cli", "getnetworkinfo")
+		_, err := cmd.Output()
+		if err == nil {
+		    fmt.Println("Bitcoin is running. You should shut it down with `bitcoin-cli stop` first. We don't want to access the chainstate LevelDB while Bitcoin is running.")
+		    fmt.Println("Note: If you do stop bitcoind, make sure that it won't auto-restart (e.g. if it's running as a systemd service).")
+		    
+		    // Ask if you want to continue anyway (e.g. if you've copied the chainstate to a new location and bitcoin is still running)
+		    reader := bufio.NewReader(os.Stdin)
+			fmt.Printf("%s [y/n] (default n): ", "Do you wish to continue anyway?")
+			response, _ := reader.ReadString('\n')
+			response = strings.ToLower(strings.TrimSpace(response))
+
+			if response != "y" && response != "yes" {
+				return
+			}
+		}
+    }
+    
+    // Check if OS type is Mac OS, then increase ulimit -n to 4096 filehandler during runtime and reset to 1024 at the end
+    // Mac OS standard is 1024
+    // Linux standard is already 4096 which is also "max" for more edit etc/security/limits.conf
+	if runtime.GOOS == "darwin" {
+        cmd2 := exec.Command("ulimit", "-n", "4096")
+        fmt.Println("setting ulimit 4096\n")
+        _, err := cmd2.Output()
+        if err != nil {
+            fmt.Println("setting new ulimit failed with %s\n", err)
+        }
+        defer exec.Command("ulimit", "-n", "1024")
+	}
 
     // Show Version
     if *version {
