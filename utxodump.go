@@ -36,6 +36,7 @@ func main() {
     version := flag.Bool("version", false, "Print version.")
     p2pkaddresses := flag.Bool("p2pkaddresses", false, "Convert public keys in P2PK locking scripts to addresses also.") // true/false
     nowarnings := flag.Bool("nowarnings", false, "Ignore warnings if bitcoind is running in the background.") // true/false
+    quiet := flag.Bool("quiet", false, "Do not display any progress or results.") // true/false
     flag.Parse() // execute command line parsing for all declared flags
 
     // Check bitcoin isn't running first
@@ -148,7 +149,9 @@ func main() {
         panic(err)
     }
     defer f.Close()
-    fmt.Printf("Processing %s and writing results to %s\n", *chainstate, *file)
+    if ! *quiet {
+    	fmt.Printf("Processing %s and writing results to %s\n", *chainstate, *file)
+    }
 
     // Create file buffer to speed up writing to the file.
     writer := bufio.NewWriter(f)
@@ -173,7 +176,9 @@ func main() {
     signal.Notify(c, os.Interrupt, syscall.SIGTERM)
     go func() { // goroutine
         <-c // receive from channel
-        fmt.Println("Interrupt signal caught. Shutting down gracefully.")
+        if ! *quiet {
+        	fmt.Println("Interrupt signal caught. Shutting down gracefully.")
+        }
         // iter.Release() // release database iterator
         db.Close()     // close databse
         writer.Flush() // flush bufio to the file
@@ -495,7 +500,9 @@ func main() {
                     csvheader += ","
                 } // count,txid,vout,
                 csvheader = csvheader[:len(csvheader)-1] // remove trailing ,
-                fmt.Println(csvheader)
+                if ! *quiet {
+                	fmt.Println(csvheader)
+                }
                 fmt.Fprintln(writer, csvheader) // write to file
             }
 
@@ -511,17 +518,19 @@ func main() {
 
             // Print Results
             // -------------
-            if *verbose { // -v flag
-                fmt.Println(csvline) // Print each line.
-                // 1157.76user 176.47system 30:44.64elapsed 72%CPU (0avgtext+0avgdata 55332maxresident)k
-                // 1110.76user 164.97system 29:17.17elapsed 72%CPU (0avgtext+0avgdata 55236maxresident)k (after using packages)
-            } else {
-                if (i % 100000 == 0) {
-                    fmt.Printf("%d utxos processed\n", i) // Show progress at intervals.
-                }
-                // 812.18user 16.94system 12:44.04elapsed 108%CPU (0avgtext+0avgdata 55272maxresident)k
-                // 951.03user 27.91system 15:21.35elapsed 106%CPU (0avgtext+0avgdata 55896maxresident)k (after using packages)
-            }
+            if ! *quiet {
+		        if *verbose { // -v flag
+		            fmt.Println(csvline) // Print each line.
+		            // 1157.76user 176.47system 30:44.64elapsed 72%CPU (0avgtext+0avgdata 55332maxresident)k
+		            // 1110.76user 164.97system 29:17.17elapsed 72%CPU (0avgtext+0avgdata 55236maxresident)k (after using packages)
+		        } else {
+			        if (i % 100000 == 0) {
+			            fmt.Printf("%d utxos processed\n", i) // Show progress at intervals.
+			        }
+		            // 812.18user 16.94system 12:44.04elapsed 108%CPU (0avgtext+0avgdata 55272maxresident)k
+		            // 951.03user 27.91system 15:21.35elapsed 106%CPU (0avgtext+0avgdata 55896maxresident)k (after using packages)
+		        }
+		    }
 
             // Write to File
             // -------------
@@ -538,21 +547,23 @@ func main() {
 
     // Final Progress Report
     // ---------------------
-    // fmt.Printf("%d utxos saved to: %s\n", i, *file)
-    fmt.Println()
-    fmt.Printf("Total UTXOs: %d\n", i)
+    if ! *quiet {
+		// fmt.Printf("%d utxos saved to: %s\n", i, *file)
+		fmt.Println()
+		fmt.Printf("Total UTXOs: %d\n", i)
 
-    // Can only show total btc amount if we have requested to get the amount for each entry with the -f fields flag
-    if fieldsSelected["amount"] {
-        fmt.Printf("Total BTC:   %.8f\n", float64(totalAmount) / float64(100000000)) // convert satoshis to BTC (float with 8 decimal places)
-    }
+		// Can only show total btc amount if we have requested to get the amount for each entry with the -f fields flag
+		if fieldsSelected["amount"] {
+		    fmt.Printf("Total BTC:   %.8f\n", float64(totalAmount) / float64(100000000)) // convert satoshis to BTC (float with 8 decimal places)
+		}
 
-    // Can only show script type stats if we have requested to get the script type for each entry with the -f fields flag
-    if fieldsSelected["type"] {
-        fmt.Println("Script Types:")
-        for k, v := range scriptTypeCount {
-            fmt.Printf(" %-12s %d\n", k, v) // %-12s = left-justify padding
-        }
-    }
+		// Can only show script type stats if we have requested to get the script type for each entry with the -f fields flag
+		if fieldsSelected["type"] {
+		    fmt.Println("Script Types:")
+		    for k, v := range scriptTypeCount {
+		        fmt.Printf(" %-12s %d\n", k, v) // %-12s = left-justify padding
+		    }
+		}
+	}
 
 }
