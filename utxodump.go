@@ -156,6 +156,18 @@ func main() {
     // Create file buffer to speed up writing to the file.
     writer := bufio.NewWriter(f)
     defer writer.Flush() // Flush the bufio buffer to the file before this script ends
+	
+    // CSV Headers
+    csvheader := ""
+    for _, v := range strings.Split(*fields, ",") {
+        csvheader += v
+        csvheader += ","
+    } // count,txid,vout,
+    csvheader = csvheader[:len(csvheader)-1] // remove trailing ,
+    if ! *quiet {
+	fmt.Println(csvheader)
+    }
+    fmt.Fprintln(writer, csvheader) // write to file
 
     // Stats - keep track of interesting stats as we read through leveldb.
     var totalAmount int64 = 0 // total amount of satoshis
@@ -492,22 +504,8 @@ func main() {
             // Results
             // -------
 
-            // CSV Headers
-            if i == 2 { // only print header once at the start
-                csvheader := ""
-                for _, v := range strings.Split(*fields, ",") {
-                    csvheader += v
-                    csvheader += ","
-                } // count,txid,vout,
-                csvheader = csvheader[:len(csvheader)-1] // remove trailing ,
-                if ! *quiet {
-                	fmt.Println(csvheader)
-                }
-                fmt.Fprintln(writer, csvheader) // write to file
-            }
-
             // CSV Lines
-            output["count"] = fmt.Sprintf("%d",i-1) // convert integer to string (e.g 1 to "1")
+            output["count"] = fmt.Sprintf("%d",i+1) // convert integer to string (e.g 1 to "1")
             csvline := "" // Build output line from given fields
             // [ ] string builder faster?
             for _, v := range strings.Split(*fields, ",") {
@@ -524,7 +522,7 @@ func main() {
 		            // 1157.76user 176.47system 30:44.64elapsed 72%CPU (0avgtext+0avgdata 55332maxresident)k
 		            // 1110.76user 164.97system 29:17.17elapsed 72%CPU (0avgtext+0avgdata 55236maxresident)k (after using packages)
 		        } else {
-			        if (i % 100000 == 0) {
+			        if (i > 0 && i % 100000 == 0) {
 			            fmt.Printf("%d utxos processed\n", i) // Show progress at intervals.
 			        }
 		            // 812.18user 16.94system 12:44.04elapsed 108%CPU (0avgtext+0avgdata 55272maxresident)k
@@ -537,11 +535,9 @@ func main() {
             // Write to buffer (use bufio for faster writes)
             fmt.Fprintln(writer, csvline)
 
+            // Increment Count
+            i++
         }
-
-        // Increment Count
-        i++
-
     }
     iter.Release() // Do not defer this, want to release iterator before closing database
 
