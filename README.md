@@ -99,7 +99,7 @@ $ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,script,type,addres
 * **height** - The height of the block the transaction was mined in.
 * **coinbase** - Whether the output is from a coinbase transaction (i.e. claiming a block reward).
 * **amount** - The value of the output in _satoshis_.
-* **script** - The locking script placed on the output (this is just the hash160 public key or hash160 script for a P2PK, P2PKH, or P2SH)
+* **script** - Details about the locking script placed on the output. For a P2PKH this is the hash160 of the compressed public key. For a P2PK script this a compressed public key (sometimes with a [prefix](https://github.com/in3rsha/bitcoin-chainstate-parser#3-third-varint) to indicate that the original script contained an uncompressed public key). For a P2SH script this is the hash160 of the script. For everything else it's the complete scriptpubkey.
 * **type** - The type of locking script (e.g. P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH, or non-standard)
 * **address** - The address the output is locked to (this is generally just the locking script in a shorter format with user-friendly characters).
 
