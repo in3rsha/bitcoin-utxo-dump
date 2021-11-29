@@ -143,9 +143,6 @@ func main() {
 	}
 	defer db.Close()
 
-	// Output Fields - build output from flags passed in
-	output := &UTXO{} // we will add to this as we go through each utxo in the database
-
 	// Stats - keep track of interesting stats as we read through leveldb.
 	var totalAmount int64 = 0                                                                                                  // total amount of satoshis
 	scriptTypeCount := map[string]int{"p2pk": 0, "p2pkh": 0, "p2sh": 0, "p2ms": 0, "p2wpkh": 0, "p2wsh": 0, "non-standard": 0} // count each script type
@@ -178,6 +175,8 @@ func main() {
 	utxoBuf := make([]*UTXO, BUF_SIZE)
 	i := 0
 	for iter.Next() {
+		// Output Fields - build output from flags passed in
+		output := &UTXO{} // we will add to this as we go through each utxo in the database
 
 		key := iter.Key()
 		value := iter.Value()
