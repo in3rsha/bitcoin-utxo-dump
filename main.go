@@ -30,7 +30,7 @@ const (
 	ENV_MONGO_URI               = "MONGO_URI"
 	ENV_MONGO_BITCOIN_DB_NAME   = "MONGO_UTXO_DB_NAME"
 	UTXO_COLLECTION_NAME_PREFIX = "utxo"
-	BUF_SIZE                    = 8092
+	BUF_SIZE                    = 1024
 )
 
 func main() {
