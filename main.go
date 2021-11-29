@@ -34,6 +34,21 @@ const (
 	BUF_SIZE                    = 1024
 )
 
+func insertUTXO(ctx context.Context, buf []UTXO, wg *sync.WaitGroup, totalProcessedSoFar int64, utxoCollection *mongo.Collection) {
+	defer wg.Done()
+	log.Printf("%d utxos processed\n", totalProcessedSoFar) // Show progress at intervals.
+	// convert to mongo-acceptable arguments...
+	var docs []interface{}
+	for _, utxo := range buf {
+		docs = append(docs, utxo)
+	}
+	_, err := utxoCollection.InsertMany(ctx, docs)
+	if err != nil {
+		log.Println("failed to insert many with error: ", err.Error())
+		return
+	}
+}
+
 func main() {
 	// Set default chainstate LevelDB and output file
 	defaultFolder := fmt.Sprintf("%s/.bitcoin/chainstate/", os.Getenv("HOME")) // %s = string
@@ -174,8 +189,8 @@ func main() {
 	utxoCollection := utxoDB.Collection(utxoCollectionName)
 
 	utxoBuf := make([]UTXO, BUF_SIZE)
-	i := 0
-	wg := sync.WaitGroup{}
+	var i int64
+	wg := &sync.WaitGroup{}
 	for iter.Next() {
 		// Output Fields - build output from flags passed in
 		output := UTXO{} // we will add to this as we go through each utxo in the database
@@ -456,20 +471,7 @@ func main() {
 			// -------------
 			if i > 0 && i%BUF_SIZE == 0 {
 				wg.Add(1)
-				go func(buf []UTXO) {
-					defer wg.Done()
-					log.Printf("%d utxos processed\n", i) // Show progress at intervals.
-					// convert to mongo-acceptable arguments...
-					var docs []interface{}
-					for _, utxo := range buf {
-						docs = append(docs, utxo)
-					}
-					_, err := utxoCollection.InsertMany(ctx, docs)
-					if err != nil {
-						log.Println("failed to insert many with error: ", err.Error())
-						return
-					}
-				}(utxoBuf)
+				go insertUTXO(ctx, utxoBuf, wg, i, utxoCollection)
 			}
 
 			// Write to File
@@ -481,6 +483,11 @@ func main() {
 			i++
 		}
 	}
+
+	wg.Add(1)
+
+	go insertUTXO(ctx, utxoBuf[:i%BUF_SIZE], wg, i, utxoCollection)
+
 	iter.Release() // Do not defer this, want to release iterator before closing database
 
 	wg.Wait()
