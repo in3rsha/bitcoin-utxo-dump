@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/ABMatrix/bitcoin-utxo/bitcoin/bech32"
@@ -174,6 +175,7 @@ func main() {
 
 	utxoBuf := make([]UTXO, BUF_SIZE)
 	i := 0
+	wg := sync.WaitGroup{}
 	for iter.Next() {
 		// Output Fields - build output from flags passed in
 		output := UTXO{} // we will add to this as we go through each utxo in the database
@@ -453,7 +455,9 @@ func main() {
 			// Print Results
 			// -------------
 			if i > 0 && i%BUF_SIZE == 0 {
+				wg.Add(1)
 				go func(buf []UTXO) {
+					defer wg.Done()
 					log.Printf("%d utxos processed\n", i) // Show progress at intervals.
 					// convert to mongo-acceptable arguments...
 					var docs []interface{}
@@ -478,6 +482,8 @@ func main() {
 		}
 	}
 	iter.Release() // Do not defer this, want to release iterator before closing database
+
+	wg.Wait()
 
 	// Final Progress Report
 	// ---------------------
