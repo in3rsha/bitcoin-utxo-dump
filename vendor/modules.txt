@@ -1,0 +1,23 @@
+# github.com/akamensky/base58 v0.0.0-20210829145138-ce8bf8802e8f
+## explicit; go 1.15
+github.com/akamensky/base58
+# github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db
+## explicit
+github.com/golang/snappy
+# github.com/syndtr/goleveldb v1.0.0
+## explicit
+github.com/syndtr/goleveldb/leveldb
+github.com/syndtr/goleveldb/leveldb/cache
+github.com/syndtr/goleveldb/leveldb/comparer
+github.com/syndtr/goleveldb/leveldb/errors
+github.com/syndtr/goleveldb/leveldb/filter
+github.com/syndtr/goleveldb/leveldb/iterator
+github.com/syndtr/goleveldb/leveldb/journal
+github.com/syndtr/goleveldb/leveldb/memdb
+github.com/syndtr/goleveldb/leveldb/opt
+github.com/syndtr/goleveldb/leveldb/storage
+github.com/syndtr/goleveldb/leveldb/table
+github.com/syndtr/goleveldb/leveldb/util
+# golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871
+## explicit; go 1.17
+golang.org/x/crypto/ripemd160
