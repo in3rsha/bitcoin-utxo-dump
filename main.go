@@ -172,11 +172,11 @@ func main() {
 	utxoDB := mongoCli.Database(mongoDBName)
 	utxoCollection := utxoDB.Collection(utxoCollectionName)
 
-	utxoBuf := make([]*UTXO, BUF_SIZE)
+	utxoBuf := make([]UTXO, BUF_SIZE)
 	i := 0
 	for iter.Next() {
 		// Output Fields - build output from flags passed in
-		output := &UTXO{} // we will add to this as we go through each utxo in the database
+		output := UTXO{} // we will add to this as we go through each utxo in the database
 
 		key := iter.Key()
 		value := iter.Value()
@@ -453,11 +453,11 @@ func main() {
 			// Print Results
 			// -------------
 			if i > 0 && i%BUF_SIZE == 0 {
-				go func() {
+				go func(buf []UTXO) {
 					log.Printf("%d utxos processed\n", i) // Show progress at intervals.
 					// convert to mongo-acceptable arguments...
 					var docs []interface{}
-					for _, utxo := range utxoBuf {
+					for _, utxo := range buf {
 						docs = append(docs, utxo)
 					}
 					_, err := utxoCollection.InsertMany(ctx, docs)
@@ -465,7 +465,7 @@ func main() {
 						log.Println("failed to insert many with error: ", err.Error())
 						return
 					}
-				}()
+				}(utxoBuf)
 			}
 
 			// Write to File
