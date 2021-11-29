@@ -1,30 +1,16 @@
 # Bitcoin UTXO Dump
 
-**Warning:** This tool may corrupt your chainstate database. If it does, you will need to run `bitcoind -reindex-chainstate` the next time you run bitcoin, and this usually takes around a day to complete. It's not a terrible problem, but it can be annoying. I'm not entirely sure why it happens, so if you can figure out how to fix it, that would be cool.
+**Warning:** Stop the bitcoin node prior to running this tool.
+If there's any error related to a corrupted database,
+you will need to run `bitcoind -reindex-chainstate` the next time you run bitcoin, and this usually takes around a day to complete.
 
 -----
-
-![](assets/bitcoin-utxo-dump.gif)
-
 Get a **list of every unspent bitcoin** in the blockchain.
 
-The program iterates over each entry in Bitcoin Core's `chainstate` [LevelDB](http://leveldb.org/) database. It decompresses and decodes the data, and produces a human-readable text dump of all the [UTXO](http://learnmeabitcoin.com/glossary/utxo)s (unspent transaction outputs).
-
-### Example CSV Results:
-
-```
-count,txid,vout,amount,type,address
-1,033e83e3204b0cc28724e147f6fd140529b2537249f9c61c9de9972750030000,0,65279,p2pkh,1KaPHfvVWNZADup3Yc26SfVdkTDvvHySVX
-2,e1c9467a885a156e56a29d9c854e65674d581ad75611b02290454b4862060000,1,9466355,p2pkh,1LpCmEejWLNfZigApMPwUY9nZTS8NTJCNS
-3,a1f28c43f1f3d4821d0db42707737ea90616613099234f905dfc6ae2b4060000,1,339500,p2pkh,1FuphZ7xVPGrxthQT1S8X7nNQNByYxAT3V
-4,818f5b9e3ede69da765d4c24684e813057c9b1f059e098661369b0a2ee060000,0,300000,p2pkh,18Y9yhjU9g2jjJmvaUy7TmUNZH9iPzQ4dd
-5,d2f5e439152d076593a145581f8d76ea2e48ed155285b9a245cd42dd06070000,0,100000,p2pkh,1EKHTvovYWHfUJ6i9vsoidyTPQauCPH1qC
-6,ea0c69fbd2389556b01771948ffc0507cf303bdc5a1b91b31acf9ecf6a070000,1,27668,p2pkh,1fkEhLpPKdmKtaxKdp4yDp1c87dF7GDub
-7,05eafead65250a24b1592f8a006cbeab16a7b17ed2616507c5e0bd67bd070000,1,32000,p2pkh,15KmfJcGNfL29vpsSJ37uPzTQfr8Qe17Gq
-8,2c0c985d384160d8c50c438bc67e639fe6047a7f2bac00a1238ca6a6d3070000,0,41936,p2pkh,17up1oPxBMTfZdehzy4v81KzLRHGDNX8ff
-9,8261170b7ae26be70bd9e8f0e4bf19ce3571bb6464cdf9e478c471d372080000,1,4528208,p2pkh,1P6Ae7unrSjtx9J5SjWuwAdZBoWcbcjzBZ
-...
-```
+The program iterates over each entry in Bitcoin Core's `chainstate` [LevelDB](http://leveldb.org/) database.
+It decompresses and decodes the data,
+and produces a human-readable text dump of all the
+[UTXO](http://learnmeabitcoin.com/glossary/utxo)s (unspent transaction outputs).
 
 ## Install
 
@@ -38,16 +24,19 @@ sudo apt install libleveldb-dev
 After that, if you have [Go](https://golang.org/) installed you can do:
 
 ```
-go get github.com/in3rsha/bitcoin-utxo-dump
+go get github.com/ABMatrix/bitcoin-utxo
 ```
 
-This will create a binary called `bitcoin-utxo-dump`, which you can call from the command line:
+This will create a binary called `bitcoin-utxo`, which you can call from the command line:
 
 ```
-$ bitcoin-utxo-dump
+$ export MONGO_URI='mongodb://user:password@<ip>:<port>/?authSource=admin&authMechanism=SCRAM-SHA-1[&ssl=true]'
+$ export MONGO_UTXO_DB_NAME=<db_name>
+$ bitcoin-utxo --db /path/to/chainstate/ --testnet > /root/bioin-utxo-testnet.log 2>&1 &
 ```
-
-This will start dumping all of the UTXO database to a file called `utxodump.csv`.
+`[&ssl=true]` is optional depending on how you connect to your mongodb.
+This will start dumping all the UTXO from the testnet to mongodb.
+After that, you will see utxos residing in either `utxo-testnet` or `utxo-mainnet` depending on which network you specified.
 
 **NOTE:** This program reads the chainstate LevelDB database created by `bitcoind`, so you will need to download and sync `bitcoind` for this script to work. In other words, this script reads your own local copy of the blockchain.
 
@@ -59,41 +48,26 @@ This will start dumping all of the UTXO database to a file called `utxodump.csv`
 The basic command is:
 
 ```
-$ bitcoin-utxo-dump
+$ export MONGO_URI='mongodb://user:password@<ip>:<port>/?authSource=admin&authMechanism=SCRAM-SHA-1[&ssl=true]'
+$ export MONGO_UTXO_DB_NAME=<db_name>
+$ bitcoin-utxo
 ```
 
-You can view the results in the terminal with the `-v` (verbose) flag (but this will make the script run about **3 times slower**):
-
-```
-$ bitcoin-utxo-dump -v
-```
-
-The results will be written to the file in the current directory called `utxodump.csv`. You can choose your own filename with the `-o` option:
-
-```
-$ bitcoin-utxo-dump -o ~/Desktop/utxodump.txt
-```
+You **must** set the 2 environment variables prior to running the `bitcoin-utxo` command.
 
 If you know that the `chainstate` LevelDB folder is in a different location to the default (e.g. you want to get a UTXO dump of the _Testnet_ blockchain), use the `-db` option:
 
 ```
-$ bitcoin-utxo-dump -db ~/.bitcoin/testnet3/chainstate/
+$ bitcoin-utxo-dump  --db /home/bitcoin/.bitcoin/testnet3/chainstate/ --testnet
 ```
 
 By default this script does not convert the public keys inside P2PK locking scripts to addresses (because technically they do not have an address). However, sometimes it may be useful to get addresses for them anyway for use with other APIs, so the following option allows you to return the "address" for UTXOs with P2PK locking scripts:
 
 ```
-$ bitcoin-utxo-dump -p2pkaddresses
+$ bitcoin-utxo -p2pkaddresses
 ```
 
-You can select what data the script outputs from the chainstate database with the `-f` (fields) option. This is useful if you know what data you need and want to _reduce the size of the results file_.
-
-```
-$ bitcoin-utxo-dump -f count,txid,vout,address
-$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,script,type,address # all possible fields
-```
-
-* **count** - The count of the number of UTXOs in the database.
+### Fields for each mongodb document
 * **txid** - [Transaction ID](http://learnmeabitcoin.com/glossary/txid) for the output.
 * **vout** - The index number of the transaction output (which output in the transaction is it?).
 * **height** - The height of the block the transaction was mined in.
@@ -122,21 +96,13 @@ Either way, I'd probably make a cup of tea after it starts running.
 
 ### How big is the file?
 
-The file should be around **7GB** (roughly **2.5 times the size** of the LevelDB database: `du -h ~/.bitcoin/chainstate/`).
-
-Again, this depends on how many entries are in the UTXO database, but it also depends what _fields_ you choose to have in the results:
-
-```
-$ bitcoin-utxo-dump -f address # small file
-$ bitcoin-utxo-dump -f count,txid,vout,amount,type,address # bigger file
-$ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,nsize,script,type,address # biggest file
-```
+The resultant mongodb size should be around **7GB** (roughly **2.5 times the size** of the LevelDB database: `du -h ~/.bitcoin/chainstate/`).
 
 ### What versions of bitcoin does this tool work with?
 
-This tool works for Bitcoin Core [0.15.1](https://bitcoincore.org/en/releases/0.15.1/) and above. You can check your version with `bitcoind --version`.
+This tool works for Bitcoin Core [0.22.1](https://bitcoincore.org/en/releases/22.0/) and above. You can check your version with `bitcoind --version`.
 
-Older versions of bitcoind have a different chainstate LevelDB structure. The structure was updated in 0.15.1 to make reading from the database more memory-efficient. Here's an interesting talk by [Chris Jeffrey](https://youtu.be/0WCaoGiAOHE?t=8936) that explains how you could crash Bitcoin Core with the old chainstate database structure.
+Older versions of bitcoind have a different chainstate LevelDB structure. The structure was updated in 0.22.0 to make reading from the database more memory-efficient. Here's an interesting talk by [Chris Jeffrey](https://youtu.be/0WCaoGiAOHE?t=8936) that explains how you could crash Bitcoin Core with the old chainstate database structure.
 
 Nonetheless, if you really want to parse an _old-style_ chainstate database, try one of the _similar tools_ at the bottom of this page.
 
@@ -188,6 +154,7 @@ The trickier part is decoding the data for each UTXO in the database:
 
  * [github.com/sr-gi/bitcoin_tools](https://github.com/sr-gi/bitcoin_tools)
  * [github.com/in3rsha/bitcoin-chainstate-parser](https://github.com/in3rsha/bitcoin-chainstate-parser)
+ * [github.com/in3rsha/bitcoin-utxo-dump](https://github.com/in3rsha/bitcoin-utxo-dump)
  * [github.com/mycroft/chainstate](https://github.com/mycroft/chainstate)
  * [laanwj (unfinished)](https://github.com/bitcoin/bitcoin/pull/7759)
 
