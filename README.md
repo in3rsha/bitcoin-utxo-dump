@@ -2,6 +2,19 @@
 
 **Warning:** This tool may corrupt your chainstate database. If it does, you will need to run `bitcoind -reindex-chainstate` the next time you run bitcoin, and this usually takes around a day to complete. It's not a terrible problem, but it can be annoying. I'm not entirely sure why it happens, so if you can figure out how to fix it, that would be cool.
 
+You can get around this issue by first copying the chainstate database to an alternate location and then run `bitcoin-utxo-dump` pointing to this alternate location. Here's a example:
+
+```bash
+# 0. stop bitcoin daemon
+bitcoin-cli stop
+
+# 1. copy the chaninstate data to an alternative location
+rsync --delete -av ~/.bitcoin/chainstate/ ~/bitcoin-chainstate-clone/
+
+# 2. now run the bitcoin-utxo-dump pointing to this alternate location
+bitcoin-utxo-dump -db ~/bitcoin-chainstate-clone/
+```
+
 -----
 
 ![](assets/bitcoin-utxo-dump.gif)
