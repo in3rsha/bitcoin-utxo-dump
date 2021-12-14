@@ -26,6 +26,13 @@ import (
     "strings"
 )
 
+const (
+    encBech32       = 1
+    encBech32m      = 2
+    invalidEncoding = -1
+    bech32mConst    = 0x2bc830a3
+)
+
 var charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
 var generator = []int{0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3}
@@ -56,13 +63,26 @@ func hrpExpand(hrp string) []int {
     return ret
 }
 
-func verifyChecksum(hrp string, data []int) bool {
-    return polymod(append(hrpExpand(hrp), data...)) == 1
+func verifyChecksum(hrp string, data []int) int {
+    constant := polymod(append(hrpExpand(hrp), data...))
+    if constant == 1 {
+        return encBech32
+    } else if constant == bech32mConst {
+        return encBech32m
+    }
+
+    return invalidEncoding
 }
 
-func createChecksum(hrp string, data []int) []int {
+func createChecksum(hrp string, data []int, spec int) []int {
     values := append(append(hrpExpand(hrp), data...), []int{0, 0, 0, 0, 0, 0}...)
-    mod := polymod(values) ^ 1
+    constant := 1
+    if spec == encBech32m {
+        constant = bech32mConst
+    }
+
+    mod := polymod(values) ^ constant
+
     ret := make([]int, 6)
     for p := 0; p < len(ret); p++ {
         ret[p] = (mod >> uint(5*(5-p))) & 31
@@ -72,7 +92,7 @@ func createChecksum(hrp string, data []int) []int {
 
 // Encode encodes hrp(human-readable part) and data(32bit data array), returns Bech32 / or error
 // if hrp is uppercase, return uppercase Bech32
-func Encode(hrp string, data []int) (string, error) {
+func Encode(hrp string, data []int, spec int) (string, error) {
     if (len(hrp) + len(data) + 7) > 90 {
         return "", fmt.Errorf("too long : hrp length=%d, data length=%d", len(hrp), len(data))
     }
@@ -89,7 +109,7 @@ func Encode(hrp string, data []int) (string, error) {
     }
     lower := strings.ToLower(hrp) == hrp
     hrp = strings.ToLower(hrp)
-    combined := append(data, createChecksum(hrp, data)...)
+    combined := append(data, createChecksum(hrp, data, spec)...)
     var ret bytes.Buffer
     ret.WriteString(hrp)
     ret.WriteString("1")
@@ -105,37 +125,39 @@ func Encode(hrp string, data []int) (string, error) {
     return strings.ToUpper(ret.String()), nil
 }
 
-// Decode decodes bechString(Bech32) returns hrp(human-readable part) and data(32bit data array) / or error
-func Decode(bechString string) (string, []int, error) {
+// Decode decodes bechString(Bech32/Bech32m) returns hrp(human-readable part), data(32bit data array) and spec (int) / or error
+func Decode(bechString string) (string, []int, int, error) {
     if len(bechString) > 90 {
-        return "", nil, fmt.Errorf("too long : len=%d", len(bechString))
+        return "", nil, invalidEncoding, fmt.Errorf("too long : len=%d", len(bechString))
     }
     if strings.ToLower(bechString) != bechString && strings.ToUpper(bechString) != bechString {
-        return "", nil, fmt.Errorf("mixed case")
+        return "", nil, invalidEncoding, fmt.Errorf("mixed case")
     }
     bechString = strings.ToLower(bechString)
     pos := strings.LastIndex(bechString, "1")
     if pos < 1 || pos+7 > len(bechString) {
-        return "", nil, fmt.Errorf("separator '1' at invalid position : pos=%d , len=%d", pos, len(bechString))
+        return "", nil, invalidEncoding, fmt.Errorf("separator '1' at invalid position : pos=%d , len=%d", pos, len(bechString))
     }
     hrp := bechString[0:pos]
     for p, c := range hrp {
         if c < 33 || c > 126 {
-            return "", nil, fmt.Errorf("invalid character human-readable part : bechString[%d]=%d", p, c)
+            return "", nil, invalidEncoding, fmt.Errorf("invalid character human-readable part : bechString[%d]=%d", p, c)
         }
     }
     data := []int{}
     for p := pos + 1; p < len(bechString); p++ {
         d := strings.Index(charset, fmt.Sprintf("%c", bechString[p]))
         if d == -1 {
-            return "", nil, fmt.Errorf("invalid character data part : bechString[%d]=%d", p, bechString[p])
+            return "", nil, invalidEncoding, fmt.Errorf("invalid character data part : bechString[%d]=%d", p, bechString[p])
         }
         data = append(data, d)
     }
-    if !verifyChecksum(hrp, data) {
-        return "", nil, fmt.Errorf("invalid checksum")
+
+    spec := verifyChecksum(hrp, data)
+    if spec == invalidEncoding {
+        return "", nil, invalidEncoding, fmt.Errorf("invalid checksum")
     }
-    return hrp, data[:len(data)-6], nil
+    return hrp, data[:len(data)-6], spec, nil
 }
 
 func convertbits(data []int, frombits, tobits uint, pad bool) ([]int, error) {
@@ -168,7 +190,7 @@ func convertbits(data []int, frombits, tobits uint, pad bool) ([]int, error) {
 
 // SegwitAddrDecode decodes hrp(human-readable part) Segwit Address(string), returns version(int) and data(bytes array) / or error
 func SegwitAddrDecode(hrp, addr string) (int, []int, error) {
-    dechrp, data, err := Decode(addr)
+    dechrp, data, spec, err := Decode(addr)
     if err != nil {
         return -1, nil, err
     }
@@ -191,11 +213,19 @@ func SegwitAddrDecode(hrp, addr string) (int, []int, error) {
     if data[0] == 0 && len(res) != 20 && len(res) != 32 {
         return -1, nil, fmt.Errorf("invalid program length for witness version 0 (per BIP141) : %d", len(res))
     }
+    if data[0] == 0 && spec != encBech32 || data[0] != 0 && spec != encBech32m {
+        return -1, nil, fmt.Errorf("witness version and encoding don't match : %d and %d", data[0], spec)
+    }
     return data[0], res, nil
 }
 
 // SegwitAddrEncode encodes hrp(human-readable part) , version(int) and data(bytes array), returns Segwit Address / or error
 func SegwitAddrEncode(hrp string, version int, program []int) (string, error) {
+    spec := encBech32m
+    if version == 0 {
+        spec = encBech32
+    }
+
     if version < 0 || version > 16 {
         return "", fmt.Errorf("invalid witness version : %d", version)
     }
@@ -205,11 +235,16 @@ func SegwitAddrEncode(hrp string, version int, program []int) (string, error) {
     if version == 0 && len(program) != 20 && len(program) != 32 {
         return "", fmt.Errorf("invalid program length for witness version 0 (per BIP141) : %d", len(program))
     }
+    if version == 0 && spec != encBech32 || version != 0 && spec != encBech32m {
+        return "", fmt.Errorf("witness version and encoding don't match : %d and %d", version, spec)
+    }
+
     data, err := convertbits(program, 8, 5, true)
     if err != nil {
         return "", err
     }
-    ret, err := Encode(hrp, append([]int{version}, data...))
+
+    ret, err := Encode(hrp, append([]int{version}, data...), spec)
     if err != nil {
         return "", err
     }
