@@ -1,6 +1,21 @@
 # github.com/akamensky/base58 v0.0.0-20210829145138-ce8bf8802e8f
 ## explicit; go 1.15
 github.com/akamensky/base58
+# github.com/btcsuite/btcd v0.22.0-beta
+## explicit; go 1.14
+github.com/btcsuite/btcd/btcec
+github.com/btcsuite/btcd/chaincfg
+github.com/btcsuite/btcd/chaincfg/chainhash
+github.com/btcsuite/btcd/txscript
+github.com/btcsuite/btcd/wire
+# github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
+## explicit
+github.com/btcsuite/btclog
+# github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
+## explicit; go 1.14
+github.com/btcsuite/btcutil
+github.com/btcsuite/btcutil/base58
+github.com/btcsuite/btcutil/bech32
 # github.com/go-stack/stack v1.8.0
 ## explicit
 github.com/go-stack/stack
