@@ -261,7 +261,6 @@ func main() {
 			output.Vout = btcleveldb.Varint128Decode(index)
 
 			uniqueKey := fmt.Sprintf("%s-%d", output.TxID, output.Vout)
-			output.ID = uniqueKey
 			if _, ok := utxoSet[uniqueKey]; ok {
 				log.Printf("[warning] %s already exists\n", uniqueKey)
 				continue
