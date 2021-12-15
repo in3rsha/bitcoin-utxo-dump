@@ -214,6 +214,7 @@ func main() {
 	utxoCollection := utxoDB.Collection(utxoCollectionName)
 
 	utxoBuf := make([]UTXO, BUF_SIZE)
+	utxoSet := make(map[string]struct{})
 	var i int64
 	wg := &sync.WaitGroup{}
 	for iter.Next() {
@@ -259,7 +260,13 @@ func main() {
 			// convert varint128 index to an integer
 			output.Vout = btcleveldb.Varint128Decode(index)
 
-			output.ID = fmt.Sprintf("%s-%d", output.TxID, output.Vout)
+			uniqueKey := fmt.Sprintf("%s-%d", output.TxID, output.Vout)
+			output.ID = uniqueKey
+			if _, ok := utxoSet[uniqueKey]; ok {
+				log.Printf("[warning] %s already exists\n", uniqueKey)
+				continue
+			}
+			utxoSet[uniqueKey] = struct{}{}
 
 			// -----
 			// Value
