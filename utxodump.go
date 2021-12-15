@@ -165,13 +165,13 @@ func main() {
     } // count,txid,vout,
     csvheader = csvheader[:len(csvheader)-1] // remove trailing ,
     if ! *quiet {
-	fmt.Println(csvheader)
+        fmt.Println(csvheader)
     }
     fmt.Fprintln(writer, csvheader) // write to file
 
     // Stats - keep track of interesting stats as we read through leveldb.
     var totalAmount int64 = 0 // total amount of satoshis
-    scriptTypeCount := map[string]int{"p2pk":0, "p2pkh":0, "p2sh":0, "p2ms":0, "p2wpkh":0, "p2wsh":0, "non-standard": 0} // count each script type
+    scriptTypeCount := map[string]int{"p2pk":0, "p2pkh":0, "p2sh":0, "p2ms":0, "p2wpkh":0, "p2wsh":0, "p2tr": 0, "non-standard": 0} // count each script type
 
 
     // Declare obfuscateKey (a byte slice)
@@ -189,7 +189,7 @@ func main() {
     go func() { // goroutine
         <-c // receive from channel
         if ! *quiet {
-        	fmt.Println("Interrupt signal caught. Shutting down gracefully.")
+            fmt.Println("Interrupt signal caught. Shutting down gracefully.")
         }
         // iter.Release() // release database iterator
         db.Close()     // close databse
@@ -250,7 +250,7 @@ func main() {
             // -----
 
             // Only deobfuscate and get data from the Value if something is needed from it (improves speed if you just want the txid:vout)
-            if fieldsSelected["type"] || fieldsSelected["height"] || fieldsSelected["coinbase"] || fieldsSelected["amount"] || fieldsSelected["nsize"] || fieldsSelected["script"] || fieldsSelected["type"] || fieldsSelected["address"] {
+            if fieldsSelected["type"] || fieldsSelected["height"] || fieldsSelected["coinbase"] || fieldsSelected["amount"] || fieldsSelected["nsize"] || fieldsSelected["script"] || fieldsSelected["address"] {
 
                 // Copy the obfuscateKey ready to extend it
                 obfuscateKeyExtended := obfuscateKey[1:] // ignore the first byte, as that just tells you the size of the obfuscateKey
@@ -361,7 +361,7 @@ func main() {
                     output["script"] = hex.EncodeToString(script)
                 }
 
-                // Addresses - Get address from script (if possible), and set script type (P2PK, P2PKH, P2SH, P2MS, P2WPKH, or P2WSH)
+                // Addresses - Get address from script (if possible), and set script type (P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH or P2TR)
                 // ---------
                 if fieldsSelected["address"] || fieldsSelected["type"] {
 
@@ -464,7 +464,7 @@ func main() {
                     }
 
                     // P2WSH
-                    if nsize == 40 && script[0] == 0 && script[1] == 32 { // P2WSH (script type is 40, which means length of script is 34 bytes)
+                    if nsize == 40 && script[0] == 0 && script[1] == 32 { // P2WSH (script type is 40, which means length of script is 34 bytes; 0x00 means segwit v0)
                         // 956,1df27448422019c12c38d21c81df5c98c32c19cf7a312e612f78bebf4df20000,1,561890,800000,0,40,00200e7a15ba23949d9c274a1d9f6c9597fa9754fc5b5d7d45fc4369eeb4935c9bfe
                         version := script[0]
                         program := script[2:]
@@ -484,6 +484,29 @@ func main() {
 
                         scriptType = "p2wsh"
                         scriptTypeCount["p2wsh"] += 1
+                    }
+
+                    // P2TR
+                    if nsize == 40 && script[0] == 0x51 && script[1] == 32 { // P2TR (script type is 40, which means length of script is 34 bytes; 0x51 means segwit v1 = taproot)
+                        // 9608047,bbc2e707dbc68db35dbada9be9d9182e546ee9302dc0a5cdd1a8dc3390483620,0,709635,2003,0,40,5120ef69f6a605817bc88882f88cbfcc60962af933fe1ae24a61069fb60067045963
+                        version := 1
+                        program := script[2:]
+
+                        var programint []int
+                        for _, v := range program {
+                            programint = append(programint, int(v)) // cast every value to an int
+                        }
+
+                        if fieldsSelected["address"] { // only work out addresses if they're wanted
+                            if testnet == true {
+                                address, _ = bech32.SegwitAddrEncode("tb", version, programint) // testnet bech32 addresses start with tb
+                            } else {
+                                address, _ = bech32.SegwitAddrEncode("bc", version, programint) // mainnet bech32 addresses start with bc
+                            }
+                        }
+
+                        scriptType = "p2tr"
+                        scriptTypeCount["p2tr"] += 1
                     }
 
                     // Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
