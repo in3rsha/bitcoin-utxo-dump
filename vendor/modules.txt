@@ -1,5 +1,3 @@
-# github.com/aead/siphash v1.0.1
-## explicit
 # github.com/akamensky/base58 v0.0.0-20210829145138-ce8bf8802e8f
 ## explicit; go 1.15
 github.com/akamensky/base58
@@ -18,32 +16,12 @@ github.com/btcsuite/btclog
 github.com/btcsuite/btcutil
 github.com/btcsuite/btcutil/base58
 github.com/btcsuite/btcutil/bech32
-# github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd
-## explicit
-# github.com/btcsuite/goleveldb v1.0.0
-## explicit
-# github.com/btcsuite/snappy-go v1.0.0
-## explicit
-# github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792
-## explicit
-# github.com/btcsuite/winsvc v1.0.0
-## explicit
-# github.com/davecgh/go-spew v1.1.1
-## explicit
-# github.com/decred/dcrd/lru v1.1.1
-## explicit; go 1.11
 # github.com/go-stack/stack v1.8.0
 ## explicit
 github.com/go-stack/stack
 # github.com/golang/snappy v0.0.4
 ## explicit
 github.com/golang/snappy
-# github.com/jessevdk/go-flags v1.5.0
-## explicit; go 1.15
-# github.com/jrick/logrotate v1.0.0
-## explicit
-# github.com/kkdai/bstream v1.0.0
-## explicit; go 1.6
 # github.com/klauspost/compress v1.13.6
 ## explicit; go 1.15
 github.com/klauspost/compress
