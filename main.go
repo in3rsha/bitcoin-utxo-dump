@@ -370,84 +370,63 @@ func main() {
 			var address string           // initialize address variable
 			var scriptType = NONSTANDARD // initialize script type
 
-			scriptClass := txscript.GetScriptClass(script)
-			switch scriptClass {
-			case txscript.NonStandardTy:
-				scriptTypeCount[NONSTANDARD] += 1
-			case txscript.PubKeyTy:
-				scriptType = PUBKEY
-				scriptTypeCount[PUBKEY] += 1
-				if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
-					// Decompress if starts with 0x04 or 0x05
-					if (nsize == 4) || (nsize == 5) {
-						script = keys.DecompressPublicKey(script)
-					}
-
-					if testnet == true {
-						address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
-					} else {
-						address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
-					}
-				}
-			case txscript.PubKeyHashTy:
-				if testnet == true {
-					address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
-				} else {
-					address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
-				}
-				scriptType = PUBKEYHASH
-				scriptTypeCount[PUBKEYHASH] += 1
-			case txscript.WitnessV0PubKeyHashTy:
-				version := script[0]
-				program := script[2:]
-
-				// bech32 function takes an int array and not a byte array, so convert the array to integers
-				var programint []int // initialize empty integer array to hold the new one
-				for _, v := range program {
-					programint = append(programint, int(v)) // cast every value to an int
-				}
-
-				if testnet == true {
-					address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
-				} else {
-					address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
-				}
-				scriptType = WITNESS_V0_KEYHASH
-				scriptTypeCount[WITNESS_V0_KEYHASH] += 1
-			case txscript.ScriptHashTy:
-				if testnet == true {
-					address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
-				} else {
-					address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
-				}
-				scriptType = SCRIPTHASH
-				scriptTypeCount[SCRIPTHASH] += 1
-			case txscript.WitnessV0ScriptHashTy:
-				version := script[0]
-				program := script[2:]
-
-				// bech32 function takes an int array and not a byte array, so convert the array to integers
-				var programint []int // initialize empty integer array to hold the new one
-				for _, v := range program {
-					programint = append(programint, int(v)) // cast every value to an int
-				}
-
-				if testnet == true {
-					address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
-				} else {
-					address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
-				}
-				scriptType = WITNESS_V0_SCRIPTHASH
-				scriptTypeCount[WITNESS_V0_SCRIPTHASH] += 1
-			case txscript.MultiSigTy:
-				scriptType = MULTISIG
-				scriptTypeCount[MULTISIG] += 1
-			case txscript.NullDataTy:
+			if script[0] == 0x6a { // OP_RETURN = 0x6a
 				// nulldata
-				// unspendable coins won't be added to the database but will be counted towards the stats
-				scriptTypeCount[NULLDATA] += 1
+				scriptTypeCount[NULLDATA]++
 				continue
-			case txscript.WitnessUnknownTy:
+			}
+
+			if isTrue, _ := txscript.IsMultisigScript(script); isTrue { // P2MS
+				scriptType = MULTISIG
+				scriptTypeCount[MULTISIG]++
+			} else if nsize < 6 { // legacy txout types
+				if nsize == 0 { // P2PKH
+					if testnet == true {
+						address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+					} else {
+						address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
+					}
+					scriptType = PUBKEYHASH
+					scriptTypeCount[PUBKEYHASH]++
+				} else if nsize == 1 { // P2SH
+					if testnet == true {
+						address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
+					} else {
+						address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
+					}
+					scriptType = SCRIPTHASH
+					scriptTypeCount[SCRIPTHASH]++
+				} else { // P2PK
+					// 2, 3, 4, 5
+					//  2 = P2PK 02publickey <- nsize makes up part of the public key in the actual script (e.g. 02publickey)
+					//  3 = P2PK 03publickey <- y is odd/even (0x02 = even, 0x03 = odd)
+					//  4 = P2PK 04publickey (uncompressed)  y = odd  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
+					//  5 = P2PK 04publickey (uncompressed) y = even
+					// "The uncompressed pubkeys are compressed when they are added to the db. 0x04 and 0x05 are used to indicate that the key is supposed to be uncompressed and those indicate whether the y value is even or odd so that the full uncompressed key can be retrieved."
+					//
+					// if nsize is 4 or 5, you will need to uncompress the public key to get it's full form
+					// if nsize == 4 || nsize == 5 {
+					//     // uncompress (4 = y is even, 5 = y is odd)
+					//     script = decompress(script)
+					// }
+					scriptType = PUBKEY
+					scriptTypeCount[PUBKEY]++
+
+					if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
+
+						// Decompress if starts with 0x04 or 0x05
+						if (nsize == 4) || (nsize == 5) {
+							script = keys.DecompressPublicKey(script)
+						}
+
+						if testnet == true {
+							address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+						} else {
+							address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
+						}
+					}
+				}
+			} else if txscript.IsWitnessProgram(script) { // witness program
 				version := script[0]
 				program := script[2:]
 
@@ -462,15 +441,25 @@ func main() {
 				} else {
 					address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
 				}
-				actualSize := nsize - 6
-				if actualSize == 34 && script[0] == 0x51 && script[1] == 32 { // P2TR (script type is 40, version is OP_1 = 0x51)
-					// 81 == 0x51 == OP_1
+
+				if nsize == 28 && script[0] == 0 && script[1] == 20 { // P2WPKH (script type is 28, which means length of script is 22 bytes)
+					scriptType = WITNESS_V0_KEYHASH
+					scriptTypeCount[WITNESS_V0_KEYHASH]++
+				} else if nsize == 40 && script[0] == 0 && script[1] == 32 { // P2WSH (script type is 40, which means length of script is 34 bytes)
+					scriptType = WITNESS_V0_SCRIPTHASH
+					scriptTypeCount[WITNESS_V0_SCRIPTHASH]++
+				} else if nsize == 40 && script[0] == 0x51 && script[1] == 32 { // P2TR
 					scriptType = WITNESS_V1_TAPROOT
-					scriptTypeCount[WITNESS_V1_TAPROOT] += 1
-				} else { // P2W?? -- pay to witness_unknown
+					scriptTypeCount[WITNESS_V1_TAPROOT]++
+				} else { // P2W?
 					scriptType = WITNESS_UNKNOWN
-					scriptTypeCount[WITNESS_UNKNOWN] += 1
+					scriptTypeCount[WITNESS_UNKNOWN]++
 				}
+			}
+
+			// Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
+			if scriptType == "non-standard" {
+				scriptTypeCount["non-standard"]++
 			}
 
 			// add address and script type to results map
