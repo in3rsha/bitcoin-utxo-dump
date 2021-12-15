@@ -370,7 +370,7 @@ func main() {
 			var address string           // initialize address variable
 			var scriptType = NONSTANDARD // initialize script type
 
-			if script[0] == 0x6a { // OP_RETURN = 0x6a
+			if len(script) > 0 && script[0] == 0x6a { // OP_RETURN = 0x6a
 				// nulldata
 				scriptTypeCount[NULLDATA]++
 				continue
