@@ -259,6 +259,8 @@ func main() {
 			// convert varint128 index to an integer
 			output.Vout = btcleveldb.Varint128Decode(index)
 
+			output.ID = fmt.Sprintf("%s-%d", output.TxID, output.Vout)
+
 			// -----
 			// Value
 			// -----
