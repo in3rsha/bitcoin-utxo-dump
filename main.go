@@ -17,10 +17,13 @@ import (
 	"syscall"
 
 	"github.com/ABMatrix/bitcoin-utxo/bitcoin/bech32"
+
+	"github.com/syndtr/goleveldb/leveldb/opt"
+
 	"github.com/ABMatrix/bitcoin-utxo/bitcoin/btcleveldb"
 	"github.com/ABMatrix/bitcoin-utxo/bitcoin/keys"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/opt"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -32,6 +35,17 @@ const (
 	ENV_MONGO_BITCOIN_DB_NAME   = "MONGO_UTXO_DB_NAME"
 	UTXO_COLLECTION_NAME_PREFIX = "utxo"
 	BUF_SIZE                    = 1024
+
+	NONSTANDARD           string = "nonstandard"
+	PUBKEY                string = "pubkey"
+	PUBKEYHASH            string = "pubkeyhash"
+	SCRIPTHASH            string = "scripthash"
+	MULTISIG              string = "multisig"
+	WITNESS_V0_KEYHASH    string = "witness_v0_keyhash"
+	WITNESS_V0_SCRIPTHASH string = "witness_v0_scripthash"
+	WITNESS_V1_TAPROOT    string = "witness_v1_taproot"
+	WITNESS_UNKNOWN       string = "witness_unknown"
+	NULLDATA              string = "nulldata"
 )
 
 func insertUTXO(ctx context.Context, buf []UTXO, wg *sync.WaitGroup, totalProcessedSoFar int64, utxoCollection *mongo.Collection) {
@@ -89,7 +103,7 @@ func main() {
 		log.Println("setting ulimit 4096")
 		_, err := cmd2.Output()
 		if err != nil {
-			log.Println("setting new ulimit failed with %s\n", err)
+			log.Printf("setting new ulimit failed with %s\n", err)
 		}
 		defer exec.Command("ulimit", "-n", "1024")
 	}
@@ -160,8 +174,19 @@ func main() {
 	defer db.Close()
 
 	// Stats - keep track of interesting stats as we read through leveldb.
-	var totalAmount int64 = 0                                                                                                  // total amount of satoshis
-	scriptTypeCount := map[string]int{"p2pk": 0, "p2pkh": 0, "p2sh": 0, "p2ms": 0, "p2wpkh": 0, "p2wsh": 0, "non-standard": 0} // count each script type
+	var totalAmount int64 = 0 // total amount of satoshis
+	scriptTypeCount := map[string]int{
+		NONSTANDARD:           0,
+		PUBKEY:                0,
+		PUBKEYHASH:            0,
+		SCRIPTHASH:            0,
+		MULTISIG:              0,
+		WITNESS_V0_KEYHASH:    0,
+		WITNESS_V0_SCRIPTHASH: 0,
+		WITNESS_V1_TAPROOT:    0,
+		WITNESS_UNKNOWN:       0,
+		NULLDATA:              0,
+	} // count each script type
 
 	// Declare obfuscateKey (a byte slice)
 	var obfuscateKey []byte // obfuscateKey := make([]byte, 0)
@@ -326,7 +351,6 @@ func main() {
 			varint, bytesRead = btcleveldb.Varint128Read(xor, offset) // start after last varint
 			offset += bytesRead
 			nsize := btcleveldb.Varint128Decode(varint) //
-			output.Size = nsize
 
 			// Script (remaining bytes)
 			// ------
@@ -343,51 +367,17 @@ func main() {
 			// Addresses - Get address from script (if possible), and set script type (P2PK, P2PKH, P2SH, P2MS, P2WPKH, or P2WSH)
 			// ---------
 
-			var address string              // initialize address variable
-			var scriptType = "non-standard" // initialize script type
+			var address string           // initialize address variable
+			var scriptType = NONSTANDARD // initialize script type
 
-			// P2PKH
-			if nsize == 0 {
-				if testnet == true {
-					address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
-				} else {
-					address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
-				}
-				scriptType = "p2pkh"
-				scriptTypeCount["p2pkh"] += 1
-			}
-
-			// P2SH
-			if nsize == 1 {
-				if testnet == true {
-					address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
-				} else {
-					address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
-				}
-				scriptType = "p2sh"
-				scriptTypeCount["p2sh"] += 1
-			}
-
-			// P2PK
-			if 1 < nsize && nsize < 6 { // 2, 3, 4, 5
-				//  2 = P2PK 02publickey <- nsize makes up part of the public key in the actual script (e.g. 02publickey)
-				//  3 = P2PK 03publickey <- y is odd/even (0x02 = even, 0x03 = odd)
-				//  4 = P2PK 04publickey (uncompressed)  y = odd  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
-				//  5 = P2PK 04publickey (uncompressed) y = even
-
-				// "The uncompressed pubkeys are compressed when they are added to the db. 0x04 and 0x05 are used to indicate that the key is supposed to be uncompressed and those indicate whether the y value is even or odd so that the full uncompressed key can be retrieved."
-				//
-				// if nsize is 4 or 5, you will need to uncompress the public key to get it's full form
-				// if nsize == 4 || nsize == 5 {
-				//     // uncompress (4 = y is even, 5 = y is odd)
-				//     script = decompress(script)
-				// }
-
-				scriptType = "p2pk"
-				scriptTypeCount["p2pk"] += 1
-
+			scriptClass := txscript.GetScriptClass(script)
+			switch scriptClass {
+			case txscript.NonStandardTy:
+				scriptTypeCount[NONSTANDARD] += 1
+			case txscript.PubKeyTy:
+				scriptType = PUBKEY
+				scriptTypeCount[PUBKEY] += 1
 				if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
-
 					// Decompress if starts with 0x04 or 0x05
 					if (nsize == 4) || (nsize == 5) {
 						script = keys.DecompressPublicKey(script)
@@ -399,21 +389,15 @@ func main() {
 						address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
 					}
 				}
-			}
-
-			// P2MS
-			if len(script) > 0 && script[len(script)-1] == 174 { // if there is a script and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
-				scriptType = "p2ms"
-				scriptTypeCount["p2ms"] += 1
-			}
-
-			// P2WPKH
-			if nsize == 28 && script[0] == 0 && script[1] == 20 { // P2WPKH (script type is 28, which means length of script is 22 bytes)
-				// 315,c016e8dcc608c638196ca97572e04c6c52ccb03a35824185572fe50215b80000,0,551005,3118,0,28,001427dab16cca30628d395ccd2ae417dc1fe8dfa03e
-				// script  = 0014700d1635c4399d35061c1dabcc4632c30fedadd6
-				// script  = [0 20 112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
-				// version = [0]
-				// program =      [112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
+			case txscript.PubKeyHashTy:
+				if testnet == true {
+					address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+				} else {
+					address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
+				}
+				scriptType = PUBKEYHASH
+				scriptTypeCount[PUBKEYHASH] += 1
+			case txscript.WitnessV0PubKeyHashTy:
 				version := script[0]
 				program := script[2:]
 
@@ -428,35 +412,65 @@ func main() {
 				} else {
 					address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
 				}
-
-				scriptType = "p2wpkh"
-				scriptTypeCount["p2wpkh"] += 1
-			}
-
-			// P2WSH
-			if nsize == 40 && script[0] == 0 && script[1] == 32 { // P2WSH (script type is 40, which means length of script is 34 bytes)
-				// 956,1df27448422019c12c38d21c81df5c98c32c19cf7a312e612f78bebf4df20000,1,561890,800000,0,40,00200e7a15ba23949d9c274a1d9f6c9597fa9754fc5b5d7d45fc4369eeb4935c9bfe
+				scriptType = WITNESS_V0_KEYHASH
+				scriptTypeCount[WITNESS_V0_KEYHASH] += 1
+			case txscript.ScriptHashTy:
+				if testnet == true {
+					address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
+				} else {
+					address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
+				}
+				scriptType = SCRIPTHASH
+				scriptTypeCount[SCRIPTHASH] += 1
+			case txscript.WitnessV0ScriptHashTy:
 				version := script[0]
 				program := script[2:]
 
-				var programint []int
+				// bech32 function takes an int array and not a byte array, so convert the array to integers
+				var programint []int // initialize empty integer array to hold the new one
 				for _, v := range program {
 					programint = append(programint, int(v)) // cast every value to an int
 				}
 
 				if testnet == true {
-					address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // testnet bech32 addresses start with tb
+					address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
 				} else {
-					address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // mainnet bech32 addresses start with bc
+					address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
+				}
+				scriptType = WITNESS_V0_SCRIPTHASH
+				scriptTypeCount[WITNESS_V0_SCRIPTHASH] += 1
+			case txscript.MultiSigTy:
+				scriptType = MULTISIG
+				scriptTypeCount[MULTISIG] += 1
+			case txscript.NullDataTy:
+				// nulldata
+				// unspendable coins won't be added to the database but will be counted towards the stats
+				scriptTypeCount[NULLDATA] += 1
+				continue
+			case txscript.WitnessUnknownTy:
+				version := script[0]
+				program := script[2:]
+
+				// bech32 function takes an int array and not a byte array, so convert the array to integers
+				var programint []int // initialize empty integer array to hold the new one
+				for _, v := range program {
+					programint = append(programint, int(v)) // cast every value to an int
 				}
 
-				scriptType = "p2wsh"
-				scriptTypeCount["p2wsh"] += 1
-			}
-
-			// Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
-			if scriptType == "non-standard" {
-				scriptTypeCount["non-standard"] += 1
+				if testnet == true {
+					address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
+				} else {
+					address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
+				}
+				actualSize := nsize - 6
+				if actualSize == 34 && script[0] == 0x51 && script[1] == 32 { // P2TR (script type is 40, version is OP_1 = 0x51)
+					// 81 == 0x51 == OP_1
+					scriptType = WITNESS_V1_TAPROOT
+					scriptTypeCount[WITNESS_V1_TAPROOT] += 1
+				} else { // P2W?? -- pay to witness_unknown
+					scriptType = WITNESS_UNKNOWN
+					scriptTypeCount[WITNESS_UNKNOWN] += 1
+				}
 			}
 
 			// add address and script type to results map
@@ -494,7 +508,7 @@ func main() {
 
 	// Final Progress Report
 	// ---------------------
-	log.Printf("Total UTXOs: %d\n", i)
+	log.Printf("Total spendable UTXOs: %d\n", i)
 
 	// Can only show total btc amount if we have requested to get the amount for each entry with the -f fields flag
 	log.Printf("Total BTC:   %.8f\n", float64(totalAmount)/float64(100000000)) // convert satoshis to BTC (float with 8 decimal places)

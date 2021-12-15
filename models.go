@@ -6,8 +6,7 @@ type UTXO struct {
 	Height   int64  `json:"height" bson:"height"`
 	Coinbase bool   `json:"coinbase" bson:"coinbase"`
 	Amount   int64  `json:"amount" bson:"amount"`
-	Size     int64  `json:"size" bson:"size"`
 	Script   string `json:"script" bson:"script"`
-	Type     string `json:"type" bson:"type"` // TODO: maybe not string?
+	Type     string `json:"type" bson:"type"`
 	Address  string `json:"address" bson:"address"`
 }
