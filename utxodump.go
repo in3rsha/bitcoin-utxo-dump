@@ -368,157 +368,154 @@ func main() {
                     var address string // initialize address variable
                     var scriptType string = "non-standard" // initialize script type
 
-                    // P2PKH
-                    if nsize == 0 {
-                        if fieldsSelected["address"] { // only work out addresses if they're wanted
-                            if testnet == true {
-                                address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
-                            } else {
-                                address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
-                            }
-                        }
-                        scriptType = "p2pkh"
-                        scriptTypeCount["p2pkh"] += 1
-                    }
+					switch {
+					
+		                // P2PKH
+		                case nsize == 0:
+		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
+		                        if testnet == true {
+		                            address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+		                        } else {
+		                            address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
+		                        }
+		                    }
+		                    scriptType = "p2pkh"
+		                    scriptTypeCount["p2pkh"] += 1
 
-                    // P2SH
-                    if nsize == 1 {
-                        if fieldsSelected["address"] { // only work out addresses if they're wanted
-                            if testnet == true {
-                                address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
-                            } else {
-                                address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
-                            }
-                        }
-                        scriptType = "p2sh"
-                        scriptTypeCount["p2sh"] += 1
-                    }
+		                // P2SH
+		                case nsize == 1:
+		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
+		                        if testnet == true {
+		                            address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
+		                        } else {
+		                            address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
+		                        }
+		                    }
+		                    scriptType = "p2sh"
+		                    scriptTypeCount["p2sh"] += 1
 
-                    // P2PK
-                    if 1 < nsize && nsize < 6 { // 2, 3, 4, 5
-                        //  2 = P2PK 02publickey <- nsize makes up part of the public key in the actual script (e.g. 02publickey)
-                        //  3 = P2PK 03publickey <- y is odd/even (0x02 = even, 0x03 = odd)
-                        //  4 = P2PK 04publickey (uncompressed)  y = odd  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
-                        //  5 = P2PK 04publickey (uncompressed) y = even
+		                // P2PK
+		                case 1 < nsize && nsize < 6: // 2, 3, 4, 5
+		                    //  2 = P2PK 02publickey <- nsize makes up part of the public key in the actual script (e.g. 02publickey)
+		                    //  3 = P2PK 03publickey <- y is odd/even (0x02 = even, 0x03 = odd)
+		                    //  4 = P2PK 04publickey (uncompressed)  y = odd  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
+		                    //  5 = P2PK 04publickey (uncompressed) y = even
 
-                        // "The uncompressed pubkeys are compressed when they are added to the db. 0x04 and 0x05 are used to indicate that the key is supposed to be uncompressed and those indicate whether the y value is even or odd so that the full uncompressed key can be retrieved."
-                        //
-                        // if nsize is 4 or 5, you will need to uncompress the public key to get it's full form
-                        // if nsize == 4 || nsize == 5 {
-                        //     // uncompress (4 = y is even, 5 = y is odd)
-                        //     script = decompress(script)
-                        // }
+		                    // "The uncompressed pubkeys are compressed when they are added to the db. 0x04 and 0x05 are used to indicate that the key is supposed to be uncompressed and those indicate whether the y value is even or odd so that the full uncompressed key can be retrieved."
+		                    //
+		                    // if nsize is 4 or 5, you will need to uncompress the public key to get it's full form
+		                    // if nsize == 4 || nsize == 5 {
+		                    //     // uncompress (4 = y is even, 5 = y is odd)
+		                    //     script = decompress(script)
+		                    // }
 
-                        scriptType = "p2pk"
-                        scriptTypeCount["p2pk"] += 1
+		                    scriptType = "p2pk"
+		                    scriptTypeCount["p2pk"] += 1
 
-                        if fieldsSelected["address"] { // only work out addresses if they're wanted
-                            if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
+		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
+		                        if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
 
-                                // Decompress if starts with 0x04 or 0x05
-                                if (nsize == 4) || (nsize == 5) {
-                                    script = keys.DecompressPublicKey(script)
-                                }
+		                            // Decompress if starts with 0x04 or 0x05
+		                            if (nsize == 4) || (nsize == 5) {
+		                                script = keys.DecompressPublicKey(script)
+		                            }
 
-                                if testnet == true {
-                                    address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
-                                } else {
-                                    address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
-                                }
-                            }
-                        }
-                    }
+		                            if testnet == true {
+		                                address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+		                            } else {
+		                                address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
+		                            }
+		                        }
+		                    }
 
-                    // P2MS
-                    if len(script) > 0 && script[len(script)-1] == 174 { // if there is a script and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
-                        scriptType = "p2ms"
-                        scriptTypeCount["p2ms"] += 1
-                    }
+		                // P2MS
+		                case len(script) > 0 && script[len(script)-1] == 174: // if there is a script and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
+		                    scriptType = "p2ms"
+		                    scriptTypeCount["p2ms"] += 1
 
-                    // P2WPKH
-                    if nsize == 28 && script[0] == 0 && script[1] == 20 { // P2WPKH (script type is 28, which means length of script is 22 bytes)
-                        // 315,c016e8dcc608c638196ca97572e04c6c52ccb03a35824185572fe50215b80000,0,551005,3118,0,28,001427dab16cca30628d395ccd2ae417dc1fe8dfa03e
-                        // script  = 0014700d1635c4399d35061c1dabcc4632c30fedadd6
-                        // script  = [0 20 112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
-                        // version = [0]
-                        // program =      [112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
-                        version := script[0]
-                        program := script[2:]
+		                // P2WPKH
+		                case nsize == 28 && script[0] == 0 && script[1] == 20: // P2WPKH (script type is 28, which means length of script is 22 bytes)
+		                    // 315,c016e8dcc608c638196ca97572e04c6c52ccb03a35824185572fe50215b80000,0,551005,3118,0,28,001427dab16cca30628d395ccd2ae417dc1fe8dfa03e
+		                    // script  = 0014700d1635c4399d35061c1dabcc4632c30fedadd6
+		                    // script  = [0 20 112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
+		                    // version = [0]
+		                    // program =      [112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
+		                    version := script[0]
+		                    program := script[2:]
 
-                        // bech32 function takes an int array and not a byte array, so convert the array to integers
-                        var programint []int // initialize empty integer array to hold the new one
-                        for _, v := range program {
-                            programint = append(programint, int(v)) // cast every value to an int
-                        }
+		                    // bech32 function takes an int array and not a byte array, so convert the array to integers
+		                    var programint []int // initialize empty integer array to hold the new one
+		                    for _, v := range program {
+		                        programint = append(programint, int(v)) // cast every value to an int
+		                    }
 
-                        if fieldsSelected["address"] { // only work out addresses if they're wanted
-                            if testnet == true {
-                                address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
-                            } else {
-                                address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
-                            }
-                        }
+		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
+		                        if testnet == true {
+		                            address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
+		                        } else {
+		                            address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
+		                        }
+		                    }
 
-                        scriptType = "p2wpkh"
-                        scriptTypeCount["p2wpkh"] += 1
-                    }
+		                    scriptType = "p2wpkh"
+		                    scriptTypeCount["p2wpkh"] += 1
 
-                    // P2WSH
-                    if nsize == 40 && script[0] == 0 && script[1] == 32 { // P2WSH (script type is 40, which means length of script is 34 bytes; 0x00 means segwit v0)
-                        // 956,1df27448422019c12c38d21c81df5c98c32c19cf7a312e612f78bebf4df20000,1,561890,800000,0,40,00200e7a15ba23949d9c274a1d9f6c9597fa9754fc5b5d7d45fc4369eeb4935c9bfe
-                        version := script[0]
-                        program := script[2:]
+		                // P2WSH
+		                case nsize == 40 && script[0] == 0 && script[1] == 32: // P2WSH (script type is 40, which means length of script is 34 bytes; 0x00 means segwit v0)
+		                    // 956,1df27448422019c12c38d21c81df5c98c32c19cf7a312e612f78bebf4df20000,1,561890,800000,0,40,00200e7a15ba23949d9c274a1d9f6c9597fa9754fc5b5d7d45fc4369eeb4935c9bfe
+		                    version := script[0]
+		                    program := script[2:]
 
-                        var programint []int
-                        for _, v := range program {
-                            programint = append(programint, int(v)) // cast every value to an int
-                        }
+		                    var programint []int
+		                    for _, v := range program {
+		                        programint = append(programint, int(v)) // cast every value to an int
+		                    }
 
-                        if fieldsSelected["address"] { // only work out addresses if they're wanted
-                            if testnet == true {
-                                address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // testnet bech32 addresses start with tb
-                            } else {
-                                address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // mainnet bech32 addresses start with bc
-                            }
-                        }
+		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
+		                        if testnet == true {
+		                            address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // testnet bech32 addresses start with tb
+		                        } else {
+		                            address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // mainnet bech32 addresses start with bc
+		                        }
+		                    }
 
-                        scriptType = "p2wsh"
-                        scriptTypeCount["p2wsh"] += 1
-                    }
+		                    scriptType = "p2wsh"
+		                    scriptTypeCount["p2wsh"] += 1
 
-                    // P2TR
-                    if nsize == 40 && script[0] == 0x51 && script[1] == 32 { // P2TR (script type is 40, which means length of script is 34 bytes; 0x51 means segwit v1 = taproot)
-                        // 9608047,bbc2e707dbc68db35dbada9be9d9182e546ee9302dc0a5cdd1a8dc3390483620,0,709635,2003,0,40,5120ef69f6a605817bc88882f88cbfcc60962af933fe1ae24a61069fb60067045963
-                        version := 1
-                        program := script[2:]
+		                // P2TR
+		                case nsize == 40 && script[0] == 0x51 && script[1] == 32: // P2TR (script type is 40, which means length of script is 34 bytes; 0x51 means segwit v1 = taproot)
+		                    // 9608047,bbc2e707dbc68db35dbada9be9d9182e546ee9302dc0a5cdd1a8dc3390483620,0,709635,2003,0,40,5120ef69f6a605817bc88882f88cbfcc60962af933fe1ae24a61069fb60067045963
+		                    version := 1
+		                    program := script[2:]
 
-                        var programint []int
-                        for _, v := range program {
-                            programint = append(programint, int(v)) // cast every value to an int
-                        }
+		                    var programint []int
+		                    for _, v := range program {
+		                        programint = append(programint, int(v)) // cast every value to an int
+		                    }
 
-                        if fieldsSelected["address"] { // only work out addresses if they're wanted
-                            if testnet == true {
-                                address, _ = bech32.SegwitAddrEncode("tb", version, programint) // testnet bech32 addresses start with tb
-                            } else {
-                                address, _ = bech32.SegwitAddrEncode("bc", version, programint) // mainnet bech32 addresses start with bc
-                            }
-                        }
+		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
+		                        if testnet == true {
+		                            address, _ = bech32.SegwitAddrEncode("tb", version, programint) // testnet bech32 addresses start with tb
+		                        } else {
+		                            address, _ = bech32.SegwitAddrEncode("bc", version, programint) // mainnet bech32 addresses start with bc
+		                        }
+		                    }
 
-                        scriptType = "p2tr"
-                        scriptTypeCount["p2tr"] += 1
-                    }
+		                    scriptType = "p2tr"
+		                    scriptTypeCount["p2tr"] += 1
 
-                    // Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
-                    if scriptType == "non-standard" {
-                        scriptTypeCount["non-standard"] += 1
-                    }
+		                // Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
+		                default:
+		                	scriptType = "non-standard"
+		                    scriptTypeCount["non-standard"] += 1
+		                
+		        	} // switch
+		        	
+		        	// add address and script type to results map
+	                output["address"] = address
+	                output["type"] = scriptType
 
-                    // add address and script type to results map
-                    output["address"] = address
-                    output["type"] = scriptType
-
-                }
+                } // if fieldsSelected["address"] || fieldsSelected["type"]
 
             } // if field from the Value is needed (e.g. -f txid,vout,address)
 
