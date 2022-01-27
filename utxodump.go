@@ -351,12 +351,20 @@ func main() {
                 // ------
                 // b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
                 //               <-------------------------------------->
+                
+                // Move offset back a byte if script type is 2, 3, 4, or 5 (because this forms part of the P2PK public key along with the actual script)
                 if nsize > 1 && nsize < 6 { // either 2, 3, 4, 5
-                    // move offset back a byte if script type is 2, 3, 4, or 5 (because this forms part of the P2PK public key along with the actual script)
                     offset--
                 }
-
+                
+                // Get the remaining bytes
                 script := xor[offset:]
+                
+                // Decompress the public keys from P2PK scripts that were uncompressed originally. They got compressed just for storage in the database.
+                if (nsize == 4) || (nsize == 5) {
+                    script = keys.DecompressPublicKey(script)
+                }
+                
                 if fieldsSelected["script"] {
                     output["script"] = hex.EncodeToString(script)
                 }
@@ -415,10 +423,11 @@ func main() {
 		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
 		                        if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
 
+									// NOTE: These have already been decompressed. They were decompressed when the script data was first encountered.
 		                            // Decompress if starts with 0x04 or 0x05
-		                            if (nsize == 4) || (nsize == 5) {
-		                                script = keys.DecompressPublicKey(script)
-		                            }
+		                            // if (nsize == 4) || (nsize == 5) {
+		                            //     script = keys.DecompressPublicKey(script)
+		                            // }
 
 		                            if testnet == true {
 		                                address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
