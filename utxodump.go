@@ -361,7 +361,10 @@ func main() {
                 script := xor[offset:]
                 
                 // Decompress the public keys from P2PK scripts that were uncompressed originally. They got compressed just for storage in the database.
-                if (nsize == 4) || (nsize == 5) {
+                // Only decompress if the public key was uncompressed and
+                //   * Script field is selected or
+                //   * Address field is selected and p2pk addresses are enabled.
+                if (nsize == 4 || nsize == 5) && (fieldsSelected["script"] || (fieldsSelected["address"] && *p2pkaddresses)) {
                     script = keys.DecompressPublicKey(script)
                 }
                 
