@@ -51,7 +51,7 @@ sudo apt install libleveldb-dev
 After that, if you have [Go](https://golang.org/) installed you can do:
 
 ```
-go get github.com/in3rsha/bitcoin-utxo-dump
+go install github.com/in3rsha/bitcoin-utxo-dump@latest
 ```
 
 This will create a binary called `bitcoin-utxo-dump`, which you can call from the command line:
