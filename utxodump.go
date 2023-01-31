@@ -171,7 +171,7 @@ func main() {
 
     // Stats - keep track of interesting stats as we read through leveldb.
     var totalAmount int64 = 0 // total amount of satoshis
-    scriptTypeCount := map[string]int{"p2pk":0, "p2pkh":0, "p2sh":0, "p2ms":0, "p2wpkh":0, "p2wsh":0, "p2tr": 0, "non-standard": 0} // count each script type
+    scriptTypeCount := map[string]int{"p2pk":0, "p2pk_uncompress":0, "p2pkh":0, "p2sh":0, "p2ms":0, "p2wpkh":0, "p2wsh":0, "p2tr": 0, "non-standard": 0} // count each script type
 
 
     // Declare obfuscateKey (a byte slice)
@@ -420,8 +420,15 @@ func main() {
 		                    //     script = decompress(script)
 		                    // }
 
-		                    scriptType = "p2pk"
-		                    scriptTypeCount["p2pk"] += 1
+		                    if 1 < nsize && nsize < 4 {
+		                        scriptType = "p2pk"
+		                        scriptTypeCount["p2pk"] += 1
+		                    }
+
+		                    if 3 < nsize && nsize < 6 {
+		                        scriptType = "p2pk_uncompress"
+		                        scriptTypeCount["p2pk_uncompress"] += 1
+		                    }
 
 		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
 		                        if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
@@ -439,11 +446,6 @@ func main() {
 		                            }
 		                        }
 		                    }
-
-		                // P2MS
-		                case len(script) > 0 && script[len(script)-1] == 174: // if there is a script and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
-		                    scriptType = "p2ms"
-		                    scriptTypeCount["p2ms"] += 1
 
 		                // P2WPKH
 		                case nsize == 28 && script[0] == 0 && script[1] == 20: // P2WPKH (script type is 28, which means length of script is 22 bytes)
@@ -515,6 +517,11 @@ func main() {
 
 		                    scriptType = "p2tr"
 		                    scriptTypeCount["p2tr"] += 1
+
+		                // P2MS
+		                case len(script) > 0 && script[len(script)-1] == 174: // if there is a script and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
+		                    scriptType = "p2ms"
+		                    scriptTypeCount["p2ms"] += 1
 
 		                // Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
 		                default:
