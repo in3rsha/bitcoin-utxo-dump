@@ -41,10 +41,15 @@ count,txid,vout,amount,type,address
 
 ## Install
 
-First of all, you need to have a full copy of the blockchain. You also need to install LevelDB:
+First of all, you need to have a full copy of the blockchain, which you can get from installing and running bitcoind.
 
 ```
 sudo apt install bitcoind
+```
+
+You also need to install LevelDB to run this program:
+
+```
 sudo apt install libleveldb-dev
 ```
 
@@ -66,6 +71,15 @@ This will start dumping all of the UTXO database to a file called `utxodump.csv`
 
 **NOTE:** LevelDB wasn't designed to be accessed by multiple programs at the same time, so make sure `bitcoind` isn't running before you start (`bitcoin-cli stop` should do it).
 
+## Build
+
+If you prefer to build and run locally, clone the repo and build with Go:
+
+```
+$ git clone https://github.com/in3rsha/bitcoin-utxo-dump.git
+$ cd bitcoin-utxo-dump
+$ go build .
+```
 
 ## Usage
 
