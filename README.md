@@ -21,7 +21,7 @@ bitcoin-utxo-dump -db ~/bitcoin-chainstate-clone/
 
 Get a **list of every unspent bitcoin** in the blockchain.
 
-The program iterates over each entry in Bitcoin Core's `chainstate` [LevelDB](http://leveldb.org/) database. It decompresses and decodes the data, and produces a human-readable text dump of all the [UTXO](http://learnmeabitcoin.com/glossary/utxo)s (unspent transaction outputs).
+The program iterates over each entry in Bitcoin Core's `chainstate` [LevelDB](https://github.com/google/leveldb) database. It decompresses and decodes the data, and produces a human-readable text dump of all the [UTXO](https://learnmeabitcoin.com/technical/transaction/utxo/)s (unspent transaction outputs).
 
 ### Example CSV Results:
 
@@ -107,7 +107,7 @@ $ bitcoin-utxo-dump -f count,txid,vout,height,coinbase,amount,script,type,addres
 ```
 
 * **count** - The count of the number of UTXOs in the database.
-* **txid** - [Transaction ID](http://learnmeabitcoin.com/glossary/txid) for the output.
+* **txid** - [Transaction ID](https://learnmeabitcoin.com/technical/transaction/input/txid/) for the output.
 * **vout** - The index number of the transaction output (which output in the transaction is it?).
 * **height** - The height of the block the transaction was mined in.
 * **coinbase** - Whether the output is from a coinbase transaction (i.e. claiming a block reward).
