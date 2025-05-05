@@ -12,7 +12,7 @@ bitcoin-cli stop
 rsync --delete -av ~/.bitcoin/chainstate/ ~/bitcoin-chainstate-clone/
 
 # 2. now run the bitcoin-utxo-dump pointing to this alternate location
-bitcoin-utxo-dump -db ~/bitcoin-chainstate-clone/
+bitcoin-utxo-dump -db ~/bitcoin-chainstate-clone/chainstate
 ```
 
 -----
