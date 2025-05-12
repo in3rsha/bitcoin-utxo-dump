@@ -516,6 +516,11 @@ func main() {
 		                    scriptType = "p2ms"
 		                    scriptTypeCount["p2ms"] += 1
 
+		                // P2MS
+		                case len(script) > 0 && script[len(script)-1] == 174: // if there is a script and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
+		                    scriptType = "p2ms"
+		                    scriptTypeCount["p2ms"] += 1
+
 		                // Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
 		                default:
 		                	scriptType = "non-standard"
