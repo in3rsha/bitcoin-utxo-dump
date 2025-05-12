@@ -440,11 +440,6 @@ func main() {
 		                        }
 		                    }
 
-		                // P2MS
-		                case len(script) > 0 && script[len(script)-1] == 174: // if there is a script and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
-		                    scriptType = "p2ms"
-		                    scriptTypeCount["p2ms"] += 1
-
 		                // P2WPKH
 		                case nsize == 28 && script[0] == 0 && script[1] == 20: // P2WPKH (script type is 28, which means length of script is 22 bytes)
 		                    // 315,c016e8dcc608c638196ca97572e04c6c52ccb03a35824185572fe50215b80000,0,551005,3118,0,28,001427dab16cca30628d395ccd2ae417dc1fe8dfa03e
@@ -515,6 +510,11 @@ func main() {
 
 		                    scriptType = "p2tr"
 		                    scriptTypeCount["p2tr"] += 1
+                            
+                        // P2MS
+		                case len(script) >= 37 && script[len(script)-1] == 174: // if there is a script, it's at least 37 bytes in length (min size for a P2MS), and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
+		                    scriptType = "p2ms"
+		                    scriptTypeCount["p2ms"] += 1
 
 		                // Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
 		                default:
