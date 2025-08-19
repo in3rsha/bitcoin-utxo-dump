@@ -75,6 +75,27 @@ The basic command is:
 $ bitcoin-utxo-dump
 ```
 
+
+### Output to PostgreSQL
+
+You can now write the UTXO dump directly to a PostgreSQL database by providing the `-pgUri` flag with a PostgreSQL connection URI. If this option is set, the output will be written to the specified database instead of a CSV file.
+
+Example:
+
+```
+$ bitcoin-utxo-dump -pgUri "postgres://user:pass@localhost:5432/dbname"
+```
+
+This will insert the UTXO data into a table in the given PostgreSQL database. Make sure the database is accessible and the credentials are correct.
+
+You can still use other options, such as `-v` for verbose output:
+
+```
+$ bitcoin-utxo-dump -pgUri "postgres://user:pass@localhost:5432/dbname" -v
+```
+
+---
+
 You can view the results in the terminal with the `-v` (verbose) flag (but this will make the script run about **3 times slower**):
 
 ```

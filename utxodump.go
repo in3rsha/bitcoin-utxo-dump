@@ -1,54 +1,305 @@
 package main
 
 // local packages
-import "github.com/in3rsha/bitcoin-utxo-dump/bitcoin/btcleveldb" // chainstate leveldb decoding functions
-import "github.com/in3rsha/bitcoin-utxo-dump/bitcoin/keys"   // bitcoin addresses
-import "github.com/in3rsha/bitcoin-utxo-dump/bitcoin/bech32" // segwit bitcoin addresses
+import (
+	"bufio"
+	"database/sql" // chainstate leveldb decoding functions
+	"encoding/hex"
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
+	"strings"
+	"syscall"
 
-import "github.com/syndtr/goleveldb/leveldb" // go get github.com/syndtr/goleveldb/leveldb
-import "github.com/syndtr/goleveldb/leveldb/opt" // set no compression when opening leveldb
-import "flag"         // command line arguments
-import "fmt"
-import "os"           // open file for writing
-import "os/exec"      // execute shell command (check bitcoin isn't running)
-import "os/signal"    // catch interrupt signals CTRL-C to close db connection safely
-import "syscall"      // catch kill commands too
-import "bufio"        // bulk writing to file
-import "encoding/hex" // convert byte slice to hexadecimal
-import "strings"      // parsing flags from command line
-import "runtime"      // Check OS type for file-handler limitations
+	"github.com/in3rsha/bitcoin-utxo-dump/bitcoin/bech32"
+	"github.com/in3rsha/bitcoin-utxo-dump/bitcoin/btcleveldb"
+	"github.com/in3rsha/bitcoin-utxo-dump/bitcoin/keys"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
+
+	// bitcoin addresses
+	// segwit bitcoin addresses
+
+	// go get github.com/syndtr/goleveldb/leveldb
+	// set no compression when opening leveldb
+	// command line arguments
+
+	// open file for writing
+	// execute shell command (check bitcoin isn't running)
+	// catch interrupt signals CTRL-C to close db connection safely
+	// catch kill commands too
+	// bulk writing to file
+	// convert byte slice to hexadecimal
+	// parsing flags from command line
+	// Check OS type for file-handler limitations
+	// PostgreSQL database
+	"strconv"
+
+	"github.com/lib/pq" // PostgreSQL driver
+)
+
+// PostgreSQL driver
+// String conversion functions
+
+// executeBatch executes a batch of records using PostgreSQL COPY
+func executeBatch(db *sql.DB, txn **sql.Tx, stmt **sql.Stmt, columns []string, batch [][]interface{}, verbose bool) error {
+	var err error
+
+	// Start transaction if not exists
+	if *txn == nil {
+		*txn, err = db.Begin()
+		if err != nil {
+			return fmt.Errorf("error starting transaction: %v", err)
+		}
+	}
+
+	// Prepare COPY statement if not exists
+	if *stmt == nil {
+		*stmt, err = (*txn).Prepare(pq.CopyIn("utxos", columns...))
+		if err != nil {
+			return fmt.Errorf("error preparing COPY statement: %v", err)
+		}
+	}
+
+	// Execute batch
+	for _, args := range batch {
+		_, err = (*stmt).Exec(args...)
+		if err != nil {
+			return fmt.Errorf("error copying record: %v", err)
+		}
+	}
+
+	// Flush the batch
+	err = (*stmt).Close()
+	if err != nil {
+		return fmt.Errorf("error closing statement: %v", err)
+	}
+	*stmt = nil
+
+	// Commit transaction
+	err = (*txn).Commit()
+	if err != nil {
+		return fmt.Errorf("error committing transaction: %v", err)
+	}
+	*txn = nil
+
+	return nil
+}
 
 func main() {
 
-    // Version
-    const Version = "1.0.1"
-    
-    // Set default chainstate LevelDB and output file
-    defaultfolder := fmt.Sprintf("%s/.bitcoin/chainstate/", os.Getenv("HOME")) // %s = string
-    defaultfile := "utxodump.csv"
-    
-    // Command Line Options (Flags)
-    chainstate := flag.String("db", defaultfolder, "Location of bitcoin chainstate db.") // chainstate folder
-    file := flag.String("o", defaultfile, "Name of file to dump utxo list to.") // output file
-    fields := flag.String("f", "count,txid,vout,amount,type,address", "Fields to include in output. [count,txid,vout,height,amount,coinbase,nsize,script,type,address]")
-    testnetflag := flag.Bool("testnet", false, "Is the chainstate leveldb for testnet?") // true/false
-    verbose := flag.Bool("v", false, "Print utxos as we process them (will be about 3 times slower with this though).")
-    version := flag.Bool("version", false, "Print version.")
-    p2pkaddresses := flag.Bool("p2pkaddresses", false, "Convert public keys in P2PK locking scripts to addresses also.") // true/false
-    nowarnings := flag.Bool("nowarnings", false, "Ignore warnings if bitcoind is running in the background.") // true/false
-    quiet := flag.Bool("quiet", false, "Do not display any progress or results.") // true/false
-    flag.Parse() // execute command line parsing for all declared flags
+	// Version
+	const Version = "1.0.1"
 
-    // Check bitcoin isn't running first
-    if ! *nowarnings {
+	// Variables for PostgreSQL
+	var (
+		columns []string
+		schema  []string
+		indexes []string
+		txn     *sql.Tx
+		stmt    *sql.Stmt
+		batch   [][]interface{}
+	)
+	const batchSize = 10000
+
+	// Set default chainstate LevelDB and output file
+	defaultfolder := fmt.Sprintf("%s/.bitcoin/chainstate/", os.Getenv("HOME")) // %s = string
+	defaultfile := "utxodump.csv"
+
+	// Command Line Options (Flags)
+	chainstate := flag.String("db", defaultfolder, "Location of bitcoin chainstate db.")                                                                                                 // chainstate folder
+	file := flag.String("o", defaultfile, "Name of file to dump utxo list to.")                                                                                                          // output file
+	pgURI := flag.String("pgUri", "", "PostgreSQL connection URI (e.g., postgres://user:pass@localhost:5432/dbname). If provided, output will be written to PostgreSQL instead of CSV.") // PostgreSQL connection string
+	fields := flag.String("f", "count,txid,vout,amount,type,address", "Fields to include in output. [count,txid,vout,height,amount,coinbase,nsize,script,type,address]")
+	testnetflag := flag.Bool("testnet", false, "Is the chainstate leveldb for testnet?") // true/false
+	verbose := flag.Bool("v", false, "Print utxos as we process them (will be about 3 times slower with this though).")
+	version := flag.Bool("version", false, "Print version.")
+	p2pkaddresses := flag.Bool("p2pkaddresses", false, "Convert public keys in P2PK locking scripts to addresses also.") // true/false
+	nowarnings := flag.Bool("nowarnings", false, "Ignore warnings if bitcoind is running in the background.")            // true/false
+	quiet := flag.Bool("quiet", false, "Do not display any progress or results.")                                        // true/false
+	flag.Parse()                                                                                                         // execute command line parsing for all declared flags
+
+	// Create a map of selected fields
+	fieldsSelected := map[string]bool{"count": false, "txid": false, "vout": false, "height": false, "coinbase": false, "amount": false, "nsize": false, "script": false, "type": false, "address": false}
+
+	// Check that all the given fields are included in the fieldsAllowed array
+	fieldsAllowed := []string{"count", "txid", "vout", "height", "coinbase", "amount", "nsize", "script", "type", "address"}
+	for _, v := range strings.Split(*fields, ",") {
+		exists := false
+		for _, w := range fieldsAllowed {
+			if v == w { // check each field against every element in the fieldsAllowed array
+				exists = true
+			}
+		}
+		if exists == false {
+			fmt.Printf("'%s' is not a field you can use for the output.\n", v)
+			fieldsList := ""
+			for _, v := range fieldsAllowed {
+				fieldsList += v
+				fieldsList += ","
+			}
+			fieldsList = fieldsList[:len(fieldsList)-1] // remove trailing comma
+			fmt.Printf("Choose from the following: %s\n", fieldsList)
+			return
+		}
+		// Set field in fieldsSelected map - helps to determine what and what not to calculate later on (to speed processing up)
+		if exists == true {
+			fieldsSelected[v] = true
+		}
+	}
+
+	// Check if both output methods are specified
+	if *pgURI != "" && *file != defaultfile {
+		fmt.Println("Error: Cannot specify both PostgreSQL URI (-pg) and output file (-o) at the same time.")
+		fmt.Println("Please use either -pg for PostgreSQL output or -o for CSV file output.")
+		return
+	}
+
+	// Handle PostgreSQL connection if URI is provided
+	var pgdb *sql.DB
+	if *pgURI != "" {
+		var err error
+		// Connect to PostgreSQL
+		pgdb, err = sql.Open("postgres", *pgURI)
+		if err != nil {
+			fmt.Printf("Error connecting to PostgreSQL: %v\n", err)
+			return
+		}
+		defer pgdb.Close()
+
+		// Test the connection
+		err = pgdb.Ping()
+		if err != nil {
+			fmt.Printf("Error connecting to PostgreSQL: %v\n", err)
+			return
+		}
+
+		// Tune PostgreSQL parameters for bulk loading
+		tuningParams := []string{
+			"SET maintenance_work_mem = '1GB'",
+			"SET synchronous_commit = OFF",
+			"SET work_mem = '64MB'",
+			"SET temp_buffers = '128MB'",
+			"SET commit_delay = 10000",
+		}
+
+		for _, param := range tuningParams {
+			if _, err = pgdb.Exec(param); err != nil {
+				fmt.Printf("Error setting PostgreSQL parameter: %v\n", err)
+				return
+			}
+		}
+
+		// Check if the utxos table exists
+		var tableExists bool
+		err = pgdb.QueryRow("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'utxos')").Scan(&tableExists)
+		if err != nil {
+			fmt.Printf("Error checking table existence: %v\n", err)
+			return
+		}
+
+		if tableExists {
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Print("Table 'utxos' already exists. Do you want to drop and recreate it? [y/N]: ")
+			response, _ := reader.ReadString('\n')
+			response = strings.ToLower(strings.TrimSpace(response))
+
+			if response == "y" || response == "yes" {
+				// Drop existing table and indexes
+				_, err = pgdb.Exec("DROP TABLE IF EXISTS utxos CASCADE")
+				if err != nil {
+					fmt.Printf("Error dropping table: %v\n", err)
+					return
+				}
+				if !*quiet {
+					fmt.Println("Existing table and indexes dropped successfully.")
+				}
+			} else {
+				fmt.Println("Operation cancelled.")
+				return
+			}
+		}
+
+		// Build dynamic table schema based on selected fields
+		schema = make([]string, 0)
+		indexes = make([]string, 0)
+
+		// Add fields based on selection
+		if fieldsSelected["txid"] {
+			schema = append(schema, "txid VARCHAR(64)")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_txid ON utxos(txid)")
+		}
+		if fieldsSelected["vout"] {
+			schema = append(schema, "vout INTEGER")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_vout ON utxos(vout)")
+		}
+		if fieldsSelected["height"] {
+			schema = append(schema, "height INTEGER")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_height ON utxos(height)")
+		}
+		if fieldsSelected["amount"] {
+			schema = append(schema, "amount BIGINT")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_amount ON utxos(amount)")
+		}
+		if fieldsSelected["coinbase"] {
+			schema = append(schema, "coinbase BOOLEAN")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_coinbase ON utxos(coinbase)")
+		}
+		if fieldsSelected["nsize"] {
+			schema = append(schema, "nsize INTEGER")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_nsize ON utxos(nsize)")
+		}
+		if fieldsSelected["script"] {
+			schema = append(schema, "script TEXT")
+		}
+		if fieldsSelected["type"] {
+			schema = append(schema, "type VARCHAR(20)")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_type ON utxos(type)")
+		}
+		if fieldsSelected["address"] {
+			schema = append(schema, "address VARCHAR(100)")
+			indexes = append(indexes, "CREATE INDEX idx_utxos_address ON utxos(address)")
+		}
+
+		// Do not add unique constraint, just index for performance
+
+		// Build the complete CREATE TABLE statement
+		createTableSQL := fmt.Sprintf("CREATE TABLE utxos (\n    %s\n);", strings.Join(schema, ",\n    "))
+
+		// Execute CREATE TABLE
+		_, err = pgdb.Exec(createTableSQL)
+		if err != nil {
+			fmt.Printf("Error creating table: %v\n", err)
+			return
+		}
+
+		// Create indexes
+		for _, indexSQL := range indexes {
+			_, err = pgdb.Exec(indexSQL)
+			if err != nil {
+				fmt.Printf("Error creating index: %v\n", err)
+				return
+			}
+		}
+		if err != nil {
+			fmt.Printf("Error creating database schema: %v\n", err)
+			return
+		}
+	}
+
+	// Check bitcoin isn't running first
+	if !*nowarnings {
 		cmd := exec.Command("bitcoin-cli", "getnetworkinfo")
 		_, err := cmd.Output()
 		if err == nil {
-		    fmt.Println("Bitcoin is running. You should shut it down with `bitcoin-cli stop` first. We don't want to access the chainstate LevelDB while Bitcoin is running.")
-		    fmt.Println("Note: If you do stop bitcoind, make sure that it won't auto-restart (e.g. if it's running as a systemd service).")
-		    
-		    // Ask if you want to continue anyway (e.g. if you've copied the chainstate to a new location and bitcoin is still running)
-		    reader := bufio.NewReader(os.Stdin)
+			fmt.Println("Bitcoin is running. You should shut it down with `bitcoin-cli stop` first. We don't want to access the chainstate LevelDB while Bitcoin is running.")
+			fmt.Println("Note: If you do stop bitcoind, make sure that it won't auto-restart (e.g. if it's running as a systemd service).")
+
+			// Ask if you want to continue anyway (e.g. if you've copied the chainstate to a new location and bitcoin is still running)
+			reader := bufio.NewReader(os.Stdin)
 			fmt.Printf("%s [y/n] (default n): ", "Do you wish to continue anyway?")
 			response, _ := reader.ReadString('\n')
 			response = strings.ToLower(strings.TrimSpace(response))
@@ -57,540 +308,694 @@ func main() {
 				return
 			}
 		}
-    }
-    
-    // Check if OS type is Mac OS, then increase ulimit -n to 4096 filehandler during runtime and reset to 1024 at the end
-    // Mac OS standard is 1024
-    // Linux standard is already 4096 which is also "max" for more edit etc/security/limits.conf
-	if runtime.GOOS == "darwin" {
-        cmd2 := exec.Command("ulimit", "-n", "4096")
-        fmt.Println("setting ulimit 4096\n")
-        _, err := cmd2.Output()
-        if err != nil {
-            fmt.Println("setting new ulimit failed with %s\n", err)
-        }
-        defer exec.Command("ulimit", "-n", "1024")
 	}
 
-    // Show Version
-    if *version {
-      fmt.Println(Version)
-      os.Exit(0)
-    }
+	// Check if OS type is Mac OS, then increase ulimit -n to 4096 filehandler during runtime and reset to 1024 at the end
+	// Mac OS standard is 1024
+	// Linux standard is already 4096 which is also "max" for more edit etc/security/limits.conf
+	if runtime.GOOS == "darwin" {
+		cmd2 := exec.Command("ulimit", "-n", "4096")
+		fmt.Println("setting ulimit 4096\n")
+		_, err := cmd2.Output()
+		if err != nil {
+			fmt.Println("setting new ulimit failed with %s\n", err)
+		}
+		defer exec.Command("ulimit", "-n", "1024")
+	}
 
-    // Mainnet or Testnet (for encoding addresses correctly)
-    testnet := false
-    if *testnetflag == true { // check testnet flag
-        testnet = true
-    } else { // only check the chainstate path if testnet flag has not been explicitly set to true
-        if strings.Contains(*chainstate, "testnet") { // check the chainstate path
-            testnet = true
-        }
-    }
+	// Show Version
+	if *version {
+		fmt.Println(Version)
+		os.Exit(0)
+	}
 
-    // Check chainstate LevelDB folder exists
-    if _, err := os.Stat(*chainstate); os.IsNotExist(err) {
-        fmt.Println("Couldn't find", *chainstate)
-        return
-    }
+	// Mainnet or Testnet (for encoding addresses correctly)
+	testnet := false
+	if *testnetflag == true { // check testnet flag
+		testnet = true
+	} else { // only check the chainstate path if testnet flag has not been explicitly set to true
+		if strings.Contains(*chainstate, "testnet") { // check the chainstate path
+			testnet = true
+		}
+	}
 
-    // Select bitcoin chainstate leveldb folder
-    // open leveldb without compression to avoid corrupting the database for bitcoin
-    opts := &opt.Options{
-        Compression: opt.NoCompression,
-    }
-    // https://bitcoin.stackexchange.com/questions/52257/chainstate-leveldb-corruption-after-reading-from-the-database
-    // https://github.com/syndtr/goleveldb/issues/61
-    // https://godoc.org/github.com/syndtr/goleveldb/leveldb/opt
+	// Check chainstate LevelDB folder exists
+	if _, err := os.Stat(*chainstate); os.IsNotExist(err) {
+		fmt.Println("Couldn't find", *chainstate)
+		return
+	}
 
-    db, err := leveldb.OpenFile(*chainstate, opts) // You have got to dereference the pointer to get the actual value
-    if err != nil {
-        fmt.Println("Couldn't open LevelDB.")
-        fmt.Println(err)
-        return
-    }
-    defer db.Close()
+	// Select bitcoin chainstate leveldb folder
+	// open leveldb without compression to avoid corrupting the database for bitcoin
+	opts := &opt.Options{
+		Compression: opt.NoCompression,
+	}
+	// https://bitcoin.stackexchange.com/questions/52257/chainstate-leveldb-corruption-after-reading-from-the-database
+	// https://github.com/syndtr/goleveldb/issues/61
+	// https://godoc.org/github.com/syndtr/goleveldb/leveldb/opt
 
-    // Output Fields - build output from flags passed in
-    output := map[string]string{} // we will add to this as we go through each utxo in the database
-    fieldsAllowed := []string{"count", "txid", "vout", "height", "coinbase", "amount", "nsize", "script", "type", "address"}
+	ldb, err := leveldb.OpenFile(*chainstate, opts) // You have got to dereference the pointer to get the actual value
+	if err != nil {
+		fmt.Println("Couldn't open LevelDB.")
+		fmt.Println(err)
+		return
+	}
+	defer ldb.Close()
 
-    // Create a map of selected fields
-    fieldsSelected := map[string]bool{"count":false, "txid":false, "vout":false, "height":false, "coinbase":false, "amount":false, "nsize":false, "script":false, "type":false, "address":false}
+	// Output Fields - build output from flags passed in
+	output := map[string]string{} // we will add to this as we go through each utxo in the database
+	for _, v := range strings.Split(*fields, ",") {
+		exists := false
+		for _, w := range fieldsAllowed {
+			if v == w { // check each field against every element in the fieldsAllowed array
+				exists = true
+			}
+		}
+		if exists == false {
+			fmt.Printf("'%s' is not a field you can use for the output.\n", v)
+			fieldsList := ""
+			for _, v := range fieldsAllowed {
+				fieldsList += v
+				fieldsList += ","
+			}
+			fieldsList = fieldsList[:len(fieldsList)-1] // remove trailing comma
+			fmt.Printf("Choose from the following: %s\n", fieldsList)
+			return
+		}
+		// Set field in fieldsSelected map - helps to determine what and what not to calculate later on (to speed processing up)
+		if exists == true {
+			fieldsSelected[v] = true
+		}
+	}
 
-    // Check that all the given fields are included in the fieldsAllowed array
-    for _, v := range strings.Split(*fields, ",") {
-        exists := false
-        for _, w := range fieldsAllowed {
-            if v == w { // check each field against every element in the fieldsAllowed array
-                exists = true
-            }
-        }
-        if exists == false {
-            fmt.Printf("'%s' is not a field you can use for the output.\n", v)
-            fieldsList := ""
-            for _, v := range fieldsAllowed {
-                fieldsList += v
-                fieldsList += ","
-            }
-            fieldsList = fieldsList[:len(fieldsList)-1] // remove trailing comma
-            fmt.Printf("Choose from the following: %s\n", fieldsList)
-            return
-        }
-        // Set field in fieldsSelected map - helps to determine what and what not to calculate later on (to speed processing up)
-        if exists == true {
-            fieldsSelected[v] = true
-        }
-    }
+	var f *os.File
+	var writer *bufio.Writer
 
-    // Open file to write results to.
-    f, err := os.Create(*file) // os.OpenFile("filename.txt", os.O_APPEND, 0666)
-    if err != nil {
-        panic(err)
-    }
-    defer f.Close()
-    if ! *quiet {
-    	fmt.Printf("Processing %s and writing results to %s\n", *chainstate, *file)
-    }
+	if *pgURI != "" {
+		// Using PostgreSQL output
+		if !*quiet {
+			fmt.Printf("Processing %s and writing results to PostgreSQL\n", *chainstate)
+		}
+	} else {
+		// Using CSV file output
+		f, err = os.Create(*file)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+		if !*quiet {
+			fmt.Printf("Processing %s and writing results to %s\n", *chainstate, *file)
+		}
 
-    // Create file buffer to speed up writing to the file.
-    writer := bufio.NewWriter(f)
-    defer writer.Flush() // Flush the bufio buffer to the file before this script ends
-	
-    // CSV Headers
-    csvheader := ""
-    for _, v := range strings.Split(*fields, ",") {
-        csvheader += v
-        csvheader += ","
-    } // count,txid,vout,
-    csvheader = csvheader[:len(csvheader)-1] // remove trailing ,
-    if ! *quiet {
-        fmt.Println(csvheader)
-    }
-    fmt.Fprintln(writer, csvheader) // write to file
+		// Create file buffer to speed up writing to the file.
+		writer = bufio.NewWriter(f)
+		defer writer.Flush() // Flush the bufio buffer to the file before this script ends
 
-    // Stats - keep track of interesting stats as we read through leveldb.
-    var totalAmount int64 = 0 // total amount of satoshis
-    scriptTypeCount := map[string]int{"p2pk":0, "p2pkh":0, "p2sh":0, "p2ms":0, "p2wpkh":0, "p2wsh":0, "p2tr": 0, "non-standard": 0} // count each script type
+		// CSV Headers
+		csvheader := ""
+		for _, v := range strings.Split(*fields, ",") {
+			csvheader += v
+			csvheader += ","
+		}
+		csvheader = csvheader[:len(csvheader)-1] // remove trailing ,
+		if !*quiet {
+			fmt.Println(csvheader)
+		}
+		fmt.Fprintln(writer, csvheader) // write to file
+	}
 
+	if *pgURI != "" {
+		// Build dynamic INSERT statement based on selected fields
+		columns = make([]string, 0)
+		placeholders := []string{}
+		paramCount := 0
 
-    // Declare obfuscateKey (a byte slice)
-    var obfuscateKey []byte // obfuscateKey := make([]byte, 0)
+		// Add fields in the order they were selected
+		if fieldsSelected["txid"] {
+			columns = append(columns, "txid")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["vout"] {
+			columns = append(columns, "vout")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["height"] {
+			columns = append(columns, "height")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["amount"] {
+			columns = append(columns, "amount")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["coinbase"] {
+			columns = append(columns, "coinbase")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["nsize"] {
+			columns = append(columns, "nsize")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["script"] {
+			columns = append(columns, "script")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["type"] {
+			columns = append(columns, "type")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
+		if fieldsSelected["address"] {
+			columns = append(columns, "address")
+			paramCount++
+			placeholders = append(placeholders, fmt.Sprintf("$%d", paramCount))
+		}
 
-    // Iterate over LevelDB keys
-    iter := db.NewIterator(nil, nil)
-    // NOTE: iter.Release() comes after the iteration (not deferred here)
-    // err := iter.Error()
-    // fmt.Println(err)
+		// Drop existing table if it exists
+		_, err = pgdb.Exec("DROP TABLE IF EXISTS utxos")
+		if err != nil {
+			fmt.Printf("Error dropping existing table: %v\n", err)
+			return
+		}
 
-    // Catch signals that interrupt the script so that we can close the database safely (hopefully not corrupting it)
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-    go func() { // goroutine
-        <-c // receive from channel
-        if ! *quiet {
-            fmt.Println("Interrupt signal caught. Shutting down gracefully.")
-        }
-        // iter.Release() // release database iterator
-        db.Close()     // close databse
-        writer.Flush() // flush bufio to the file
-        f.Close()      // close file
-        os.Exit(0)     // exit
-    }()
+		// Create table with the specified schema
+		createTableSQL := fmt.Sprintf("CREATE TABLE utxos (\n    %s\n);", strings.Join(schema, ",\n    "))
+		if _, err = pgdb.Exec(createTableSQL); err != nil {
+			fmt.Printf("Error creating table: %v\n", err)
+			return
+		}
 
-    i := 0
-    for iter.Next() {
+		if !*quiet {
+			fmt.Println("Created table utxos")
+		}
 
-        key := iter.Key()
-        value := iter.Value()
+		if !*quiet {
+			fmt.Printf("Processing %s and writing results to PostgreSQL\n", *chainstate)
+		}
+	}
 
-        // first byte in key indicates the type of key we've got for leveldb
-        prefix := key[0]
+	// Stats - keep track of interesting stats as we read through leveldb.
+	var totalAmount int64 = 0                                                                                                             // total amount of satoshis
+	scriptTypeCount := map[string]int{"p2pk": 0, "p2pkh": 0, "p2sh": 0, "p2ms": 0, "p2wpkh": 0, "p2wsh": 0, "p2tr": 0, "non-standard": 0} // count each script type
 
-        // obfuscateKey (first key)
-        if (prefix == 14) { // 14 = obfuscateKey
-            obfuscateKey = value
-        }
+	// Declare obfuscateKey (a byte slice)
+	var obfuscateKey []byte // obfuscateKey := make([]byte, 0)
 
-        // utxo entry
-        if (prefix == 67) { // 67 = 0x43 = C = "utxo"
+	// Iterate over LevelDB keys
+	iter := ldb.NewIterator(nil, nil)
+	// NOTE: iter.Release() comes after the iteration (not deferred here)
+	// err := iter.Error()
+	// fmt.Println(err)
 
-            // ---
-            // Key
-            // ---
+	// Catch signals that interrupt the script so that we can close the database safely (hopefully not corrupting it)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() { // goroutine
+		<-c // receive from channel
+		if !*quiet {
+			fmt.Println("Interrupt signal caught. Shutting down gracefully.")
+		}
+		// iter.Release() // release database iterator
+		ldb.Close()    // close database
+		writer.Flush() // flush bufio to the file
+		f.Close()      // close file
+		os.Exit(0)     // exit
+	}()
 
-            //      430000155b9869d56c66d9e86e3c01de38e3892a42b99949fe109ac034fff6583900
-            //      <><--------------------------------------------------------------><>
-            //      /                               |                                  \
-            //  type                          txid (little-endian)                      index (varint)
+	i := 0
+	for iter.Next() {
 
-            // txid
-            if fieldsSelected["txid"] {
-                txidLE := key[1:33] // little-endian byte order
+		key := iter.Key()
+		value := iter.Value()
 
-                // txid - reverse byte order
-                txid := make([]byte, 0) // create empty byte slice (dont want to mess with txid directly)
-                for i := len(txidLE)-1; i >= 0; i-- { // run backwards through the txid slice
-                    txid = append(txid, txidLE[i]) // append each byte to the new byte slice
-                }
-                output["txid"] = hex.EncodeToString(txid) // add to output results map
-            }
+		// first byte in key indicates the type of key we've got for leveldb
+		prefix := key[0]
 
-            // vout
-            if fieldsSelected["vout"] {
-                index := key[33:]
+		// obfuscateKey (first key)
+		if prefix == 14 { // 14 = obfuscateKey
+			obfuscateKey = value
+		}
 
-                // convert varint128 index to an integer
-                vout := btcleveldb.Varint128Decode(index)
-                output["vout"] = fmt.Sprintf("%d",vout)
-            }
+		// utxo entry
+		if prefix == 67 { // 67 = 0x43 = C = "utxo"
 
-            // -----
-            // Value
-            // -----
+			// ---
+			// Key
+			// ---
 
-            // Only deobfuscate and get data from the Value if something is needed from it (improves speed if you just want the txid:vout)
-            if fieldsSelected["type"] || fieldsSelected["height"] || fieldsSelected["coinbase"] || fieldsSelected["amount"] || fieldsSelected["nsize"] || fieldsSelected["script"] || fieldsSelected["address"] {
+			//      430000155b9869d56c66d9e86e3c01de38e3892a42b99949fe109ac034fff6583900
+			//      <><--------------------------------------------------------------><>
+			//      /                               |                                  \
+			//  type                          txid (little-endian)                      index (varint)
 
-                // Copy the obfuscateKey ready to extend it
-                obfuscateKeyExtended := obfuscateKey[1:] // ignore the first byte, as that just tells you the size of the obfuscateKey
+			// txid
+			if fieldsSelected["txid"] {
+				txidLE := key[1:33] // little-endian byte order
 
-                // Extend the obfuscateKey so it's the same length as the value
-                for i, k := len(obfuscateKeyExtended), 0; len(obfuscateKeyExtended) < len(value); i, k = i+1, k+1 {
-                    // append each byte of obfuscateKey to the end until it's the same length as the value
-                    obfuscateKeyExtended = append(obfuscateKeyExtended, obfuscateKeyExtended[k])
-                    // Example
-                    //   [8 175 184 95 99 240 37 253 115 181 161 4 33 81 167 111 145 131 0 233 37 232 118 180 123 120 78]
-                    //   [8 177 45 206 253 143 135 37 54]                                                                  <- obfuscate key
-                    //   [8 177 45 206 253 143 135 37 54 8 177 45 206 253 143 135 37 54 8 177 45 206 253 143 135 37 54]    <- extended
-                }
+				// txid - reverse byte order
+				txid := make([]byte, 0)                 // create empty byte slice (dont want to mess with txid directly)
+				for i := len(txidLE) - 1; i >= 0; i-- { // run backwards through the txid slice
+					txid = append(txid, txidLE[i]) // append each byte to the new byte slice
+				}
+				output["txid"] = hex.EncodeToString(txid) // add to output results map
+			}
 
-                // XOR the value with the obfuscateKey (xor each byte) to de-obfuscate the value
-                var xor []byte // create a byte slice to hold the xor results
-                for i := range value {
-                    result := value[i] ^ obfuscateKeyExtended[i]
-                    xor = append(xor, result)
-                }
+			// vout
+			if fieldsSelected["vout"] {
+				index := key[33:]
 
-                // -----
-                // Value
-                // -----
+				// convert varint128 index to an integer
+				vout := btcleveldb.Varint128Decode(index)
+				output["vout"] = fmt.Sprintf("%d", vout)
+			}
 
-                //   value: 71a9e87d62de25953e189f706bcf59263f15de1bf6c893bda9b045 <- obfuscated
-                //          b12dcefd8f872536b12dcefd8f872536b12dcefd8f872536b12dce <- extended obfuscateKey (XOR)
-                //          c0842680ed5900a38f35518de4487c108e3810e6794fb68b189d8b <- deobfuscated
-                //          <----><----><><-------------------------------------->
-                //           /      |    \                   |
-                //      varint   varint   varint          script <- P2PKH/P2SH hash160, P2PK public key, or complete script
-                //         |        |     nSize
-                //         |        |
-                //         |     amount (compressesed)
-                //         |
-                //         |
-                //  100000100001010100110
-                //  <------------------> \
-                //         height         coinbase
+			// -----
+			// Value
+			// -----
 
-                offset := 0
+			// Only deobfuscate and get data from the Value if something is needed from it (improves speed if you just want the txid:vout)
+			if fieldsSelected["type"] || fieldsSelected["height"] || fieldsSelected["coinbase"] || fieldsSelected["amount"] || fieldsSelected["nsize"] || fieldsSelected["script"] || fieldsSelected["address"] {
 
-                // First Varint
-                // ------------
-                // b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
-                // <---->
-                varint, bytesRead := btcleveldb.Varint128Read(xor, 0) // start reading at 0
-                offset += bytesRead
-                varintDecoded := btcleveldb.Varint128Decode(varint)
+				// Copy the obfuscateKey ready to extend it
+				obfuscateKeyExtended := obfuscateKey[1:] // ignore the first byte, as that just tells you the size of the obfuscateKey
 
-                if fieldsSelected["height"] || fieldsSelected["coinbase"] {
+				// Extend the obfuscateKey so it's the same length as the value
+				for i, k := len(obfuscateKeyExtended), 0; len(obfuscateKeyExtended) < len(value); i, k = i+1, k+1 {
+					// append each byte of obfuscateKey to the end until it's the same length as the value
+					obfuscateKeyExtended = append(obfuscateKeyExtended, obfuscateKeyExtended[k])
+					// Example
+					//   [8 175 184 95 99 240 37 253 115 181 161 4 33 81 167 111 145 131 0 233 37 232 118 180 123 120 78]
+					//   [8 177 45 206 253 143 135 37 54]                                                                  <- obfuscate key
+					//   [8 177 45 206 253 143 135 37 54 8 177 45 206 253 143 135 37 54 8 177 45 206 253 143 135 37 54]    <- extended
+				}
 
-                    // Height (first bits)
-                    height := varintDecoded >> 1 // right-shift to remove last bit
-                    output["height"] = fmt.Sprintf("%d", height)
+				// XOR the value with the obfuscateKey (xor each byte) to de-obfuscate the value
+				var xor []byte // create a byte slice to hold the xor results
+				for i := range value {
+					result := value[i] ^ obfuscateKeyExtended[i]
+					xor = append(xor, result)
+				}
 
-                    // Coinbase (last bit)
-                    coinbase := varintDecoded & 1 // AND to extract right-most bit
-                    output["coinbase"] = fmt.Sprintf("%d", coinbase)
-                }
+				// -----
+				// Value
+				// -----
 
-                // Second Varint
-                // -------------
-                // b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
-                //       <---->
-                varint, bytesRead = btcleveldb.Varint128Read(xor, offset) // start after last varint
-                offset += bytesRead
-                varintDecoded = btcleveldb.Varint128Decode(varint)
+				//   value: 71a9e87d62de25953e189f706bcf59263f15de1bf6c893bda9b045 <- obfuscated
+				//          b12dcefd8f872536b12dcefd8f872536b12dcefd8f872536b12dce <- extended obfuscateKey (XOR)
+				//          c0842680ed5900a38f35518de4487c108e3810e6794fb68b189d8b <- deobfuscated
+				//          <----><----><><-------------------------------------->
+				//           /      |    \                   |
+				//      varint   varint   varint          script <- P2PKH/P2SH hash160, P2PK public key, or complete script
+				//         |        |     nSize
+				//         |        |
+				//         |     amount (compressesed)
+				//         |
+				//         |
+				//  100000100001010100110
+				//  <------------------> \
+				//         height         coinbase
 
-                // Amount
-                if fieldsSelected["amount"] {
-                    amount := btcleveldb.DecompressValue(varintDecoded) // int64
-                    output["amount"] = fmt.Sprintf("%d", amount)
-                    totalAmount += amount // add to stats
-                }
+				offset := 0
 
-                // Third Varint
-                // ------------
-                // b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
-                //             <>
-                //
-                // nSize - byte to indicate the type or size of script - helps with compression of the script data
-                //  - https://github.com/bitcoin/bitcoin/blob/master/src/compressor.cpp
+				// First Varint
+				// ------------
+				// b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
+				// <---->
+				varint, bytesRead := btcleveldb.Varint128Read(xor, 0) // start reading at 0
+				offset += bytesRead
+				varintDecoded := btcleveldb.Varint128Decode(varint)
 
-                //  0  = P2PKH <- hash160 public key
-                //  1  = P2SH  <- hash160 script
-                //  2  = P2PK 02publickey <- nsize makes up part of the public key in the actual script
-                //  3  = P2PK 03publickey
-                //  4  = P2PK 04publickey (uncompressed - but has been compressed in to leveldb) y=even
-                //  5  = P2PK 04publickey (uncompressed - but has been compressed in to leveldb) y=odd
-                //  6+ = [size of the upcoming script] (subtract 6 though to get the actual size in bytes, to account for the previous 5 script types already taken)
-                varint, bytesRead = btcleveldb.Varint128Read(xor, offset) // start after last varint
-                offset += bytesRead
-                nsize := btcleveldb.Varint128Decode(varint) //
-                output["nsize"] = fmt.Sprintf("%d", nsize)
+				if fieldsSelected["height"] || fieldsSelected["coinbase"] {
 
-                // Script (remaining bytes)
-                // ------
-                // b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
-                //               <-------------------------------------->
-                
-                // Move offset back a byte if script type is 2, 3, 4, or 5 (because this forms part of the P2PK public key along with the actual script)
-                if nsize > 1 && nsize < 6 { // either 2, 3, 4, 5
-                    offset--
-                }
-                
-                // Get the remaining bytes
-                script := xor[offset:]
-                
-                // Decompress the public keys from P2PK scripts that were uncompressed originally. They got compressed just for storage in the database.
-                // Only decompress if the public key was uncompressed and
-                //   * Script field is selected or
-                //   * Address field is selected and p2pk addresses are enabled.
-                if (nsize == 4 || nsize == 5) && (fieldsSelected["script"] || (fieldsSelected["address"] && *p2pkaddresses)) {
-                    script = keys.DecompressPublicKey(script)
-                }
-                
-                if fieldsSelected["script"] {
-                    output["script"] = hex.EncodeToString(script)
-                }
+					// Height (first bits)
+					height := varintDecoded >> 1 // right-shift to remove last bit
+					output["height"] = fmt.Sprintf("%d", height)
 
-                // Addresses - Get address from script (if possible), and set script type (P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH or P2TR)
-                // ---------
-                if fieldsSelected["address"] || fieldsSelected["type"] {
+					// Coinbase (last bit)
+					coinbase := varintDecoded & 1 // AND to extract right-most bit
+					output["coinbase"] = fmt.Sprintf("%d", coinbase)
+				}
 
-                    var address string // initialize address variable
-                    var scriptType string = "non-standard" // initialize script type
+				// Second Varint
+				// -------------
+				// b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
+				//       <---->
+				varint, bytesRead = btcleveldb.Varint128Read(xor, offset) // start after last varint
+				offset += bytesRead
+				varintDecoded = btcleveldb.Varint128Decode(varint)
+
+				// Amount
+				if fieldsSelected["amount"] {
+					amount := btcleveldb.DecompressValue(varintDecoded) // int64
+					output["amount"] = fmt.Sprintf("%d", amount)
+					totalAmount += amount // add to stats
+				}
+
+				// Third Varint
+				// ------------
+				// b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
+				//             <>
+				//
+				// nSize - byte to indicate the type or size of script - helps with compression of the script data
+				//  - https://github.com/bitcoin/bitcoin/blob/master/src/compressor.cpp
+
+				//  0  = P2PKH <- hash160 public key
+				//  1  = P2SH  <- hash160 script
+				//  2  = P2PK 02publickey <- nsize makes up part of the public key in the actual script
+				//  3  = P2PK 03publickey
+				//  4  = P2PK 04publickey (uncompressed - but has been compressed in to leveldb) y=even
+				//  5  = P2PK 04publickey (uncompressed - but has been compressed in to leveldb) y=odd
+				//  6+ = [size of the upcoming script] (subtract 6 though to get the actual size in bytes, to account for the previous 5 script types already taken)
+				varint, bytesRead = btcleveldb.Varint128Read(xor, offset) // start after last varint
+				offset += bytesRead
+				nsize := btcleveldb.Varint128Decode(varint) //
+				output["nsize"] = fmt.Sprintf("%d", nsize)
+
+				// Script (remaining bytes)
+				// ------
+				// b98276a2ec7700cbc2986ff9aed6825920aece14aa6f5382ca5580
+				//               <-------------------------------------->
+
+				// Move offset back a byte if script type is 2, 3, 4, or 5 (because this forms part of the P2PK public key along with the actual script)
+				if nsize > 1 && nsize < 6 { // either 2, 3, 4, 5
+					offset--
+				}
+
+				// Get the remaining bytes
+				script := xor[offset:]
+
+				// Decompress the public keys from P2PK scripts that were uncompressed originally. They got compressed just for storage in the database.
+				// Only decompress if the public key was uncompressed and
+				//   * Script field is selected or
+				//   * Address field is selected and p2pk addresses are enabled.
+				if (nsize == 4 || nsize == 5) && (fieldsSelected["script"] || (fieldsSelected["address"] && *p2pkaddresses)) {
+					script = keys.DecompressPublicKey(script)
+				}
+
+				if fieldsSelected["script"] {
+					output["script"] = hex.EncodeToString(script)
+				}
+
+				// Addresses - Get address from script (if possible), and set script type (P2PK, P2PKH, P2SH, P2MS, P2WPKH, P2WSH or P2TR)
+				// ---------
+				if fieldsSelected["address"] || fieldsSelected["type"] {
+
+					var address string                     // initialize address variable
+					var scriptType string = "non-standard" // initialize script type
 
 					switch {
-					
-		                // P2PKH
-		                case nsize == 0:
-		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
-		                        if testnet == true {
-		                            address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
-		                        } else {
-		                            address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
-		                        }
-		                    }
-		                    scriptType = "p2pkh"
-		                    scriptTypeCount["p2pkh"] += 1
 
-		                // P2SH
-		                case nsize == 1:
-		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
-		                        if testnet == true {
-		                            address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
-		                        } else {
-		                            address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
-		                        }
-		                    }
-		                    scriptType = "p2sh"
-		                    scriptTypeCount["p2sh"] += 1
+					// P2PKH
+					case nsize == 0:
+						if fieldsSelected["address"] { // only work out addresses if they're wanted
+							if testnet == true {
+								address = keys.Hash160ToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+							} else {
+								address = keys.Hash160ToAddress(script, []byte{0x00}) // 1address
+							}
+						}
+						scriptType = "p2pkh"
+						scriptTypeCount["p2pkh"] += 1
 
-		                // P2PK
-		                case 1 < nsize && nsize < 6: // 2, 3, 4, 5
-		                    //  2 = P2PK 02publickey <- nsize makes up part of the public key in the actual script (e.g. 02publickey)
-		                    //  3 = P2PK 03publickey <- y is odd/even (0x02 = even, 0x03 = odd)
-		                    //  4 = P2PK 04publickey (uncompressed)  y = odd  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
-		                    //  5 = P2PK 04publickey (uncompressed) y = even
+					// P2SH
+					case nsize == 1:
+						if fieldsSelected["address"] { // only work out addresses if they're wanted
+							if testnet == true {
+								address = keys.Hash160ToAddress(script, []byte{0xc4}) // 2address - testnet addresses have a special prefix
+							} else {
+								address = keys.Hash160ToAddress(script, []byte{0x05}) // 3address
+							}
+						}
+						scriptType = "p2sh"
+						scriptTypeCount["p2sh"] += 1
 
-		                    // "The uncompressed pubkeys are compressed when they are added to the db. 0x04 and 0x05 are used to indicate that the key is supposed to be uncompressed and those indicate whether the y value is even or odd so that the full uncompressed key can be retrieved."
-		                    //
-		                    // if nsize is 4 or 5, you will need to uncompress the public key to get it's full form
-		                    // if nsize == 4 || nsize == 5 {
-		                    //     // uncompress (4 = y is even, 5 = y is odd)
-		                    //     script = decompress(script)
-		                    // }
+					// P2PK
+					case 1 < nsize && nsize < 6: // 2, 3, 4, 5
+						//  2 = P2PK 02publickey <- nsize makes up part of the public key in the actual script (e.g. 02publickey)
+						//  3 = P2PK 03publickey <- y is odd/even (0x02 = even, 0x03 = odd)
+						//  4 = P2PK 04publickey (uncompressed)  y = odd  <- actual script uses an uncompressed public key, but it is compressed when stored in this db
+						//  5 = P2PK 04publickey (uncompressed) y = even
 
-		                    scriptType = "p2pk"
-		                    scriptTypeCount["p2pk"] += 1
+						// "The uncompressed pubkeys are compressed when they are added to the db. 0x04 and 0x05 are used to indicate that the key is supposed to be uncompressed and those indicate whether the y value is even or odd so that the full uncompressed key can be retrieved."
+						//
+						// if nsize is 4 or 5, you will need to uncompress the public key to get it's full form
+						// if nsize == 4 || nsize == 5 {
+						//     // uncompress (4 = y is even, 5 = y is odd)
+						//     script = decompress(script)
+						// }
 
-		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
-		                        if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
+						scriptType = "p2pk"
+						scriptTypeCount["p2pk"] += 1
 
-									// NOTE: These have already been decompressed. They were decompressed when the script data was first encountered.
-		                            // Decompress if starts with 0x04 or 0x05
-		                            // if (nsize == 4) || (nsize == 5) {
-		                            //     script = keys.DecompressPublicKey(script)
-		                            // }
+						if fieldsSelected["address"] { // only work out addresses if they're wanted
+							if *p2pkaddresses { // if we want to convert public keys in P2PK scripts to their corresponding addresses (even though they technically don't have addresses)
 
-		                            if testnet == true {
-		                                address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
-		                            } else {
-		                                address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
-		                            }
-		                        }
-		                    }
+								// NOTE: These have already been decompressed. They were decompressed when the script data was first encountered.
+								// Decompress if starts with 0x04 or 0x05
+								// if (nsize == 4) || (nsize == 5) {
+								//     script = keys.DecompressPublicKey(script)
+								// }
 
-		                // P2WPKH
-		                case nsize == 28 && script[0] == 0 && script[1] == 20: // P2WPKH (script type is 28, which means length of script is 22 bytes)
-		                    // 315,c016e8dcc608c638196ca97572e04c6c52ccb03a35824185572fe50215b80000,0,551005,3118,0,28,001427dab16cca30628d395ccd2ae417dc1fe8dfa03e
-		                    // script  = 0014700d1635c4399d35061c1dabcc4632c30fedadd6
-		                    // script  = [0 20 112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
-		                    // version = [0]
-		                    // program =      [112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
-		                    version := script[0]
-		                    program := script[2:]
+								if testnet == true {
+									address = keys.PublicKeyToAddress(script, []byte{0x6f}) // (m/n)address - testnet addresses have a special prefix
+								} else {
+									address = keys.PublicKeyToAddress(script, []byte{0x00}) // 1address
+								}
+							}
+						}
 
-		                    // bech32 function takes an int array and not a byte array, so convert the array to integers
-		                    var programint []int // initialize empty integer array to hold the new one
-		                    for _, v := range program {
-		                        programint = append(programint, int(v)) // cast every value to an int
-		                    }
+					// P2WPKH
+					case nsize == 28 && script[0] == 0 && script[1] == 20: // P2WPKH (script type is 28, which means length of script is 22 bytes)
+						// 315,c016e8dcc608c638196ca97572e04c6c52ccb03a35824185572fe50215b80000,0,551005,3118,0,28,001427dab16cca30628d395ccd2ae417dc1fe8dfa03e
+						// script  = 0014700d1635c4399d35061c1dabcc4632c30fedadd6
+						// script  = [0 20 112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
+						// version = [0]
+						// program =      [112 13 22 53 196 57 157 53 6 28 29 171 204 70 50 195 15 237 173 214]
+						version := script[0]
+						program := script[2:]
 
-		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
-		                        if testnet == true {
-		                            address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
-		                        } else {
-		                            address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
-		                        }
-		                    }
+						// bech32 function takes an int array and not a byte array, so convert the array to integers
+						var programint []int // initialize empty integer array to hold the new one
+						for _, v := range program {
+							programint = append(programint, int(v)) // cast every value to an int
+						}
 
-		                    scriptType = "p2wpkh"
-		                    scriptTypeCount["p2wpkh"] += 1
+						if fieldsSelected["address"] { // only work out addresses if they're wanted
+							if testnet == true {
+								address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // hrp (string), version (int), program ([]int)
+							} else {
+								address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // hrp (string), version (int), program ([]int)
+							}
+						}
 
-		                // P2WSH
-		                case nsize == 40 && script[0] == 0 && script[1] == 32: // P2WSH (script type is 40, which means length of script is 34 bytes; 0x00 means segwit v0)
-		                    // 956,1df27448422019c12c38d21c81df5c98c32c19cf7a312e612f78bebf4df20000,1,561890,800000,0,40,00200e7a15ba23949d9c274a1d9f6c9597fa9754fc5b5d7d45fc4369eeb4935c9bfe
-		                    version := script[0]
-		                    program := script[2:]
+						scriptType = "p2wpkh"
+						scriptTypeCount["p2wpkh"] += 1
 
-		                    var programint []int
-		                    for _, v := range program {
-		                        programint = append(programint, int(v)) // cast every value to an int
-		                    }
+					// P2WSH
+					case nsize == 40 && script[0] == 0 && script[1] == 32: // P2WSH (script type is 40, which means length of script is 34 bytes; 0x00 means segwit v0)
+						// 956,1df27448422019c12c38d21c81df5c98c32c19cf7a312e612f78bebf4df20000,1,561890,800000,0,40,00200e7a15ba23949d9c274a1d9f6c9597fa9754fc5b5d7d45fc4369eeb4935c9bfe
+						version := script[0]
+						program := script[2:]
 
-		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
-		                        if testnet == true {
-		                            address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // testnet bech32 addresses start with tb
-		                        } else {
-		                            address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // mainnet bech32 addresses start with bc
-		                        }
-		                    }
+						var programint []int
+						for _, v := range program {
+							programint = append(programint, int(v)) // cast every value to an int
+						}
 
-		                    scriptType = "p2wsh"
-		                    scriptTypeCount["p2wsh"] += 1
+						if fieldsSelected["address"] { // only work out addresses if they're wanted
+							if testnet == true {
+								address, _ = bech32.SegwitAddrEncode("tb", int(version), programint) // testnet bech32 addresses start with tb
+							} else {
+								address, _ = bech32.SegwitAddrEncode("bc", int(version), programint) // mainnet bech32 addresses start with bc
+							}
+						}
 
-		                // P2TR
-		                case nsize == 40 && script[0] == 0x51 && script[1] == 32: // P2TR (script type is 40, which means length of script is 34 bytes; 0x51 means segwit v1 = taproot)
-		                    // 9608047,bbc2e707dbc68db35dbada9be9d9182e546ee9302dc0a5cdd1a8dc3390483620,0,709635,2003,0,40,5120ef69f6a605817bc88882f88cbfcc60962af933fe1ae24a61069fb60067045963
-		                    version := 1
-		                    program := script[2:]
+						scriptType = "p2wsh"
+						scriptTypeCount["p2wsh"] += 1
 
-		                    var programint []int
-		                    for _, v := range program {
-		                        programint = append(programint, int(v)) // cast every value to an int
-		                    }
+					// P2TR
+					case nsize == 40 && script[0] == 0x51 && script[1] == 32: // P2TR (script type is 40, which means length of script is 34 bytes; 0x51 means segwit v1 = taproot)
+						// 9608047,bbc2e707dbc68db35dbada9be9d9182e546ee9302dc0a5cdd1a8dc3390483620,0,709635,2003,0,40,5120ef69f6a605817bc88882f88cbfcc60962af933fe1ae24a61069fb60067045963
+						version := 1
+						program := script[2:]
 
-		                    if fieldsSelected["address"] { // only work out addresses if they're wanted
-		                        if testnet == true {
-		                            address, _ = bech32.SegwitAddrEncode("tb", version, programint) // testnet bech32 addresses start with tb
-		                        } else {
-		                            address, _ = bech32.SegwitAddrEncode("bc", version, programint) // mainnet bech32 addresses start with bc
-		                        }
-		                    }
+						var programint []int
+						for _, v := range program {
+							programint = append(programint, int(v)) // cast every value to an int
+						}
 
-		                    scriptType = "p2tr"
-		                    scriptTypeCount["p2tr"] += 1
-                            
-                        // P2MS
-		                case len(script) >= 37 && script[len(script)-1] == 174: // if there is a script, it's at least 37 bytes in length (min size for a P2MS), and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
-		                    scriptType = "p2ms"
-		                    scriptTypeCount["p2ms"] += 1
+						if fieldsSelected["address"] { // only work out addresses if they're wanted
+							if testnet == true {
+								address, _ = bech32.SegwitAddrEncode("tb", version, programint) // testnet bech32 addresses start with tb
+							} else {
+								address, _ = bech32.SegwitAddrEncode("bc", version, programint) // mainnet bech32 addresses start with bc
+							}
+						}
 
-		                // Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
-		                default:
-		                	scriptType = "non-standard"
-		                    scriptTypeCount["non-standard"] += 1
-		                
-		        	} // switch
-		        	
-		        	// add address and script type to results map
-	                output["address"] = address
-	                output["type"] = scriptType
+						scriptType = "p2tr"
+						scriptTypeCount["p2tr"] += 1
 
-                } // if fieldsSelected["address"] || fieldsSelected["type"]
+						// P2MS
+					case len(script) >= 37 && script[len(script)-1] == 174: // if there is a script, it's at least 37 bytes in length (min size for a P2MS), and if the last opcode is OP_CHECKMULTISIG (174) (0xae)
+						scriptType = "p2ms"
+						scriptTypeCount["p2ms"] += 1
 
-            } // if field from the Value is needed (e.g. -f txid,vout,address)
+					// Non-Standard (if the script type hasn't been identified and set then it remains as an unknown "non-standard" script)
+					default:
+						scriptType = "non-standard"
+						scriptTypeCount["non-standard"] += 1
 
+					} // switch
 
-            // -------
-            // Results
-            // -------
+					// add address and script type to results map
+					output["address"] = address
+					output["type"] = scriptType
 
-            // CSV Lines
-            output["count"] = fmt.Sprintf("%d",i+1) // convert integer to string (e.g 1 to "1")
-            csvline := "" // Build output line from given fields
-            // [ ] string builder faster?
-            for _, v := range strings.Split(*fields, ",") {
-                csvline += output[v]
-                csvline += ","
-            }
-            csvline = csvline[:len(csvline)-1] // remove trailing ,
+				} // if fieldsSelected["address"] || fieldsSelected["type"]
 
-            // Print Results
-            // -------------
-            if ! *quiet {
-		        if *verbose { // -v flag
-		            fmt.Println(csvline) // Print each line.
-		            // 1157.76user 176.47system 30:44.64elapsed 72%CPU (0avgtext+0avgdata 55332maxresident)k
-		            // 1110.76user 164.97system 29:17.17elapsed 72%CPU (0avgtext+0avgdata 55236maxresident)k (after using packages)
-		        } else {
-			        if (i > 0 && i % 100000 == 0) {
-			            fmt.Printf("%d utxos processed\n", i) // Show progress at intervals.
-			        }
-		            // 812.18user 16.94system 12:44.04elapsed 108%CPU (0avgtext+0avgdata 55272maxresident)k
-		            // 951.03user 27.91system 15:21.35elapsed 106%CPU (0avgtext+0avgdata 55896maxresident)k (after using packages)
-		        }
-		    }
+			} // if field from the Value is needed (e.g. -f txid,vout,address)
 
-            // Write to File
-            // -------------
-            // Write to buffer (use bufio for faster writes)
-            fmt.Fprintln(writer, csvline)
+			// -------
+			// Results
+			// -------
 
-            // Increment Count
-            i++
-        }
-    }
-    iter.Release() // Do not defer this, want to release iterator before closing database
+			// CSV Lines
+			output["count"] = fmt.Sprintf("%d", i+1) // convert integer to string (e.g 1 to "1")
+			csvline := ""                            // Build output line from given fields
+			// [ ] string builder faster?
+			for _, v := range strings.Split(*fields, ",") {
+				csvline += output[v]
+				csvline += ","
+			}
+			csvline = csvline[:len(csvline)-1] // remove trailing ,
 
-    // Final Progress Report
-    // ---------------------
-    if ! *quiet {
+			// Print Results
+			// -------------
+			if !*quiet {
+				if *verbose { // -v flag
+					fmt.Println(csvline) // Print each line.
+					// 1157.76user 176.47system 30:44.64elapsed 72%CPU (0avgtext+0avgdata 55332maxresident)k
+					// 1110.76user 164.97system 29:17.17elapsed 72%CPU (0avgtext+0avgdata 55236maxresident)k (after using packages)
+				} else {
+					if i > 0 && i%100000 == 0 {
+						fmt.Printf("%d utxos processed\n", i) // Show progress at intervals.
+					}
+					// 812.18user 16.94system 12:44.04elapsed 108%CPU (0avgtext+0avgdata 55272maxresident)k
+					// 951.03user 27.91system 15:21.35elapsed 106%CPU (0avgtext+0avgdata 55896maxresident)k (after using packages)
+				}
+			}
+
+			// Write output
+			if *pgURI == "" {
+				// Write to CSV file
+				fmt.Fprintln(writer, csvline)
+			} else {
+				// Write to PostgreSQL using COPY
+				args := make([]interface{}, 0)
+
+				// Build args array in the same order as columns
+				if fieldsSelected["amount"] {
+					if val, ok := output["amount"]; ok {
+						if a, err := strconv.ParseInt(val, 10, 64); err == nil {
+							args = append(args, a)
+						} else {
+							args = append(args, nil)
+						}
+					} else {
+						args = append(args, nil)
+					}
+				}
+
+				if fieldsSelected["address"] {
+					if val, ok := output["address"]; ok && val != "" {
+						args = append(args, val)
+					} else {
+						args = append(args, nil)
+					}
+				}
+
+				// Add to batch
+				batch = append(batch, args)
+
+				// Execute batch if we've reached batch size
+				if len(batch) >= batchSize {
+					if err := executeBatch(pgdb, &txn, &stmt, columns, batch, !*quiet); err != nil {
+						fmt.Printf("Error executing batch at record %d: %v\n", i, err)
+						return
+					}
+					batch = make([][]interface{}, 0, batchSize)
+				}
+
+			}
+
+			// Increment Count
+			i++
+		}
+	}
+	iter.Release() // Do not defer this, want to release iterator before closing database
+
+	// Execute any remaining batch
+	if *pgURI != "" && len(batch) > 0 {
+		if err := executeBatch(pgdb, &txn, &stmt, columns, batch, !*quiet); err != nil {
+			fmt.Printf("Error executing final batch: %v\n", err)
+			return
+		}
+	}
+
+	// Create indexes after all data is loaded
+	if *pgURI != "" {
+		// Get final count
+		var finalCount int
+		if err = pgdb.QueryRow("SELECT COUNT(*) FROM utxos").Scan(&finalCount); err != nil {
+			fmt.Printf("Error counting records: %v\n", err)
+			return
+		}
+		if !*quiet {
+			fmt.Printf("\nTotal records in database: %d\n", finalCount)
+		}
+
+		// Create indexes
+		if !*quiet {
+			fmt.Println("\nCreating indexes...")
+		}
+		for _, indexSQL := range indexes {
+			if !*quiet {
+				fmt.Printf("Creating index: %s\n", indexSQL)
+			}
+			if _, err = pgdb.Exec(indexSQL); err != nil {
+				fmt.Printf("Error creating index: %v\n", err)
+				return
+			}
+		}
+		if !*quiet {
+			fmt.Println("All indexes created successfully")
+		}
+	}
+
+	// Final Progress Report
+	// ---------------------
+	if !*quiet {
 		// fmt.Printf("%d utxos saved to: %s\n", i, *file)
 		fmt.Println()
 		fmt.Printf("Total UTXOs: %d\n", i)
 
 		// Can only show total btc amount if we have requested to get the amount for each entry with the -f fields flag
 		if fieldsSelected["amount"] {
-		    fmt.Printf("Total BTC:   %.8f\n", float64(totalAmount) / float64(100000000)) // convert satoshis to BTC (float with 8 decimal places)
+			fmt.Printf("Total BTC:   %.8f\n", float64(totalAmount)/float64(100000000)) // convert satoshis to BTC (float with 8 decimal places)
 		}
 
 		// Can only show script type stats if we have requested to get the script type for each entry with the -f fields flag
 		if fieldsSelected["type"] {
-		    fmt.Println("Script Types:")
-		    for k, v := range scriptTypeCount {
-		        fmt.Printf(" %-12s %d\n", k, v) // %-12s = left-justify padding
-		    }
+			fmt.Println("Script Types:")
+			for k, v := range scriptTypeCount {
+				fmt.Printf(" %-12s %d\n", k, v) // %-12s = left-justify padding
+			}
 		}
 	}
 
